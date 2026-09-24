@@ -10,7 +10,7 @@
 
 1/120秒の各ステップで、RK4の4回の微分評価をまとめてWasm内で処理します。`f64`、`ReleaseSafe`でビルドし、fast-mathは使いません。燃料消費前の質量をステップ全体で使う順序、各微分評価でのquaternion正規化、積分後の正規化は従来と同じです。
 
-機体構成、質量・慣性の再計算、アクチュエータ配分、燃料・電力、分離・衝突判定、破片の管理、軌道要素、UDP・HTTPはJavaScriptです。120 Hzと時間倍率、外部コントローラの期限、PyLoNパケット形式は維持します。
+機体構成、質量・慣性の再計算、アクチュエータ配分、燃料・電力、分離・衝突判定、破片の管理、軌道要素、UDP・HTTPはTypeScriptです。120 Hzと時間倍率、外部コントローラの期限、PyLoNパケット形式は維持します。
 
 ## ビルドと起動
 
@@ -22,7 +22,7 @@ npm run build:physics
 npm start
 ```
 
-`npm start` / `npm run dev` / `npm test` / ベンチマークは物理ビルドを先に実行します。ソース・ビルドスクリプト・生成物のハッシュが一致すれば再ビルドを省略するため、同じ生成物の実行にZigは不要です。生成物は `build/physics.wasm`、キャッシュは `.zig-cache/` で、両方ともGit管理対象外です。配布先で `node server/index.js` を実行する場合はWasm生成物を同梱してください。
+`npm start` / `npm run dev` / `npm test` / ベンチマークは物理ビルドを先に実行します。ソース・ビルドスクリプト・生成物のハッシュが一致すれば再ビルドを省略するため、同じ生成物の実行にZigは不要です。生成物は `build/physics.wasm`、キャッシュは `.zig-cache/` で、両方ともGit管理対象外です。配布先で `npx tsx server/index.ts` を実行する場合はWasm生成物を同梱してください。
 
 ```sh
 ZIG=/path/to/zig npm run build:physics
@@ -33,9 +33,11 @@ Wasmが存在しない場合やABIが一致しない場合は起動を止め、�
 
 ```sh
 # 物理WasmやZigがない環境でも参照版の物理処理を実行可能
-# /docs/ の表示が必要なら先に npm run docs:build
-ASTROFORGE_PHYSICS=js node server/index.js
-ASTROFORGE_PHYSICS=js node tests/benchmark.js
+# UIとドキュメントを先にビルド
+npm run build:ui
+npm run docs:build
+ASTROFORGE_PHYSICS=js npx tsx server/index.ts
+ASTROFORGE_PHYSICS=js node --import tsx tests/benchmark.js
 ```
 
 現在のバックエンドは起動ログとHTTP/SSEの `connection.physicsBackend` に `zig-wasm` または `js` と表示します。
@@ -56,7 +58,7 @@ npm run benchmark
 npm run benchmark:physics
 ```
 
-参照版は `server/physics-reference.js` に保持しています。大気の全層境界・150 km境界、姿勢や速度を変えた320ケース、80パーツ、150秒の2段飛行・燃料枯渇・分離物、真空軌道3周、機体間のメモリ独立性、異常値による停止を検証します。飛行比較は毎秒実施し、位置差0.2 mm以内、速度差0.02 mm/s以内を要求します。既存のUDP・HTTP・資源収支・衝突・自動操縦テストも同じ既定Zigバックエンドで実行します。
+参照版は `server/physics-reference.ts` に保持しています。大気の全層境界・150 km境界、姿勢や速度を変えた320ケース、80パーツ、150秒の2段飛行・燃料枯渇・分離物、真空軌道3周、機体間のメモリ独立性、異常値による停止を検証します。飛行比較は毎秒実施し、位置差0.2 mm以内、速度差0.02 mm/s以内を要求します。既存のUDP・HTTP・資源収支・衝突・自動操縦テストも同じ既定Zigバックエンドで実行します。
 
 比較ベンチマークはバックエンドごとに5つの独立プロセスを順序を交互に変えて起動し、2秒分のウォームアップ後、10秒分の物理計算と20 Hzテレメトリ生成を計測します。中央値を報告し、性能をテストの合否条件にはしません。描画・ネットワークI/O・複数機体間の衝突探索は計測に含まれません。
 

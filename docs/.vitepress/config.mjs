@@ -1,15 +1,17 @@
 import {defineConfig} from 'vitepress';
 
 export default defineConfig({
-  lang:'ja-JP',title:'AstroForge API',description:'機体・フライト・PyLoN UDP API',base:'/docs/',
+  lang:'ja-JP',title:'AstroForge',description:'起動方法、UDPでの飛行制御、テレメトリの読み方',base:'/docs/',
   cleanUrls:true,srcExclude:['validation.md','completion-audit.md','flight-update-validation.md'],
   themeConfig:{
-    siteTitle:'AstroForge / API',
-    nav:[{text:'ガイド',link:'/guide'},{text:'HTTP API',link:'/api/http'},{text:'UDP API',link:'/protocol'}],
+    siteTitle:'AstroForge',
+    nav:[{text:'はじめる',link:'/guide'},{text:'UDPで制御する',link:'/protocol'},{text:'貢献',link:'/contributing'}],
+    socialLinks:[{icon:'github',link:'https://github.com/Ampoi/AstroForge',ariaLabel:'AstroForgeのGitHubリポジトリ'}],
     sidebar:[
       {text:'はじめに',items:[{text:'概要',link:'/'},{text:'クイックスタート',link:'/guide'}]},
-      {text:'APIリファレンス',items:[{text:'HTTP / SSE',link:'/api/http'},{text:'機体とフライト状態',link:'/api/schema'},{text:'PyLoN UDP v1',link:'/protocol'}]},
-      {text:'シミュレーション',items:[{text:'複数機体・衝突・時間倍率',link:'/simulation'},{text:'Zig物理カーネル',link:'/physics-kernel'}]}
+      {text:'UDPで制御する',items:[{text:'接続と通信の流れ',link:'/protocol'},{text:'送るコマンドと機体の挙動',link:'/udp/commands'},{text:'受け取るテレメトリ',link:'/udp/telemetry'}]},
+      {text:'さらに使いこなす',items:[{text:'複数機体・衝突・時間倍率',link:'/simulation'},{text:'HTTP / SSE',link:'/api/http'},{text:'機体とフライト状態',link:'/api/schema'}]},
+      {text:'貢献',items:[{text:'開発・ビルド・コード構成',link:'/contributing'},{text:'Zig物理カーネル',link:'/physics-kernel'}]}
     ],
     search:{provider:'local'},outline:{label:'このページ',level:[2,3]},
     docFooter:{prev:'前のページ',next:'次のページ'},footer:{message:'ローカルで組み立て、コードで飛ばす。'},
