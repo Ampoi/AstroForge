@@ -1,0 +1,201 @@
+import {randomUUID} from 'node:crypto';
+import {add,sub,mul,dot,cross,norm,unit,clamp,qnorm,qconj,qmul,rotate,axisAngle,matVec} from '../shared/math.js';
+import {PARTS,G0,craftStats,massProperties,stages,splitCraft} from '../shared/craft.js';
+
+import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.js';
+import {physicsKernel} from './physics-kernel.js';
+export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.js';
+
+export class Simulation{
+  constructor(craft,{kernel=physicsKernel}={}){this.kernel=kernel;this.reset(craft);}
+  get fuel(){return Object.values(this.tankFuel).reduce((s,v)=>s+v,0);}
+  set fuel(value){
+    const tanks=this.craft.parts.filter(p=>p.type==='tank'),capacity=tanks.length*PARTS.tank.fuel;
+    this.tankFuel=Object.fromEntries(tanks.map(p=>[p.id,capacity?clamp(value,0,capacity)/tanks.length:0]));
+  }
+  reset(craft){
+    this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
+    this.time=0;this.status='pad';this.maxAltitude=0;this.maxQ=0;this.trail=[];this.events=[];this.debris=[];this.separations=[];this.passive=false;
+    this.props=massProperties(craft);this.padHeight=this.props.com[0];
+    this.position=[EARTH.radius+this.padHeight,0,0];this.velocity=cross([0,0,EARTH.spin],this.position);
+    this.quaternion=[0,0,0,1];this.omega=[0,0,EARTH.spin];
+    this.acceleration=[0,0,0];this.angularAcceleration=[0,0,0];this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};
+    this.clearCommands();this.event('発射台に配置。UDPコマンドを待っています。');
+  }
+  clearCommands(){this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
+  event(text){this.events.unshift({time:this.time,text});this.events=this.events.slice(0,30);}
+  separationIssue(id){
+    if(this.status!=='flying')return 'separation_requires_flight';
+    if(this.charge<=0)return 'no_power';
+    try{splitCraft(this.craft,id);}catch{return 'separation_unavailable';}
+    return null;
+  }
+  separate(id){
+    const issue=this.separationIssue(id);if(issue)throw Error(issue);
+    const {retained,detached}=splitCraft(this.craft,id),oldStats=this.stats;
+    const fuel={...this.tankFuel},monoFraction=oldStats.mono?this.mono/oldStats.mono:0,chargeFraction=oldStats.power?this.charge/oldStats.power:0;
+    const oldProps=massProperties(this.craft,fuel,monoFraction),origin=[...this.position],velocity=[...this.velocity];
+    const q=[...this.quaternion],omega=[...this.omega],height=craftStats(detached).height;
+    const debris=new Simulation(detached,{kernel:this.kernel});debris.id=`${this.id}/${id}`;debris.createdAt=this.time;debris.time=this.time;debris.status='flying';debris.passive=true;debris.padHeight=this.padHeight;
+    this.craft=retained;
+    for(const [body,shift] of [[this,[height,0,0]],[debris,[0,0,0]]]){
+      body.stats=craftStats(body.craft);body.tankFuel=Object.fromEntries(body.craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,fuel[p.id]]));
+      body.mono=body.stats.mono*monoFraction;body.charge=body.stats.power*chargeFraction;
+      body.props=massProperties(body.craft,body.tankFuel,monoFraction);
+      const offset=sub(add(body.props.com,shift),oldProps.com);
+      body.position=add(origin,rotate(q,offset));body.velocity=add(velocity,rotate(q,cross(omega,offset)));
+      body.quaternion=[...q];body.omega=[...omega];body.clearCommands();
+      body.last={thrust:0,drag:0,q:0,mach:0,aoa:0};body.lastActuation=null;
+    }
+    // Equal/opposite axial impulse at the ring's center, including off-axis torque.
+    const ringPoint=[height-PARTS.decoupler.height/2,0,0];
+    for(const [body,shift,sign] of [[this,[height,0,0],1],[debris,[0,0,0],-1]]){
+      const impulse=[sign*PARTS.decoupler.impulse,0,0];
+      body.velocity=add(body.velocity,mul(rotate(q,impulse),1/body.props.mass));
+      body.omega=add(body.omega,matVec(body.props.inverseInertia,cross(sub(ringPoint,add(body.props.com,shift)),impulse)));
+    }
+    this.collisionGraceUntil=this.time+.5;debris.collisionGraceUntil=this.time+.5;this.debris.push(debris);this.separations.push({id,time:this.time});this.event(`分離完了 — ${id} / ${detached.parts.length}パーツを切り離しました`);
+  }
+  impactDamage(speed,kind='ground'){
+    if(this.status==='destroyed')return;
+    this.impact={time:this.time,speed,kind,position:[...this.position]};
+    this.status='destroyed';this.destroyedAt=this.time;this.clearCommands();
+    this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};this.lastActuation=null;
+    this.event(`${kind==='ground'?'地面':'機体'}への衝突 — ${speed.toFixed(1)} m/s / ${speed>=65?'機体消失':'機体破損'}`);
+    // Break at stack joints, preserving attached surface parts and remaining resources.
+    // Already broken pieces and extreme impacts disappear instead of spawning recursively.
+    if(speed>=65||this.fragment)return;
+    const old=this.props,monoFraction=this.stats.mono?this.mono/this.stats.mono:0,chargeFraction=this.stats.power?this.charge/this.stats.power:0;
+    const pieces=[];
+    for(const core of old.parts.filter(p=>!p.def.radial)){
+      const craft={name:`${this.craft.name} / ${PARTS[core.type].name}`,parts:this.craft.parts.filter(p=>p.id===core.id||p.parent===core.id)};
+      const piece=new Simulation(craft,{kernel:this.kernel});piece.id=`${this.id}/fragment/${core.id}`;piece.fragment=true;piece.passive=true;
+      piece.time=this.time;piece.createdAt=this.time;piece.expiresAt=this.time+20;piece.status='flying';piece.collisionGraceUntil=this.time+.5;
+      piece.tankFuel=Object.fromEntries(craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,this.tankFuel[p.id]||0]));
+      piece.mono=piece.stats.mono*monoFraction;piece.charge=piece.stats.power*chargeFraction;
+      piece.props=massProperties(craft,piece.tankFuel,monoFraction);piece.padHeight=0;
+      const localCore=piece.props.parts.find(p=>p.id===core.id);
+      const offset=sub(add(sub(core.position,localCore.position),piece.props.com),old.com);
+      piece.position=add(this.position,rotate(this.quaternion,offset));piece.quaternion=[...this.quaternion];
+      piece.velocity=add(this.velocity,rotate(this.quaternion,cross(this.omega,offset)));
+      piece.omega=add(this.omega,[.4*Math.sin(pieces.length),.6,-.4]);
+      pieces.push(piece);
+    }
+    const kicks=pieces.map((_,i)=>[2*Math.cos(i*2.4),3*Math.sin(i*2.4),2*Math.sin(i*1.7)]);
+    const total=pieces.reduce((sum,p)=>sum+p.props.mass,0);
+    const mean=mul(pieces.reduce((sum,p,i)=>add(sum,mul(kicks[i],p.props.mass)),[0,0,0]),1/total);
+    pieces.forEach((p,i)=>{
+      p.velocity=add(p.velocity,sub(kicks[i],mean));
+      if(kind==='ground'){
+        const up=unit(p.position),surface=cross([0,0,EARTH.spin],p.position),relative=sub(p.velocity,surface),vertical=dot(relative,up);
+        // Ground absorbs the impact; chunks rebound briefly before falling back.
+        p.velocity=add(surface,add(mul(sub(relative,mul(up,vertical)),.3),mul(up,3+Math.min(4,speed*.08))));
+      }
+    });
+    this.debris.push(...pieces);
+  }
+  actuation(now,dt){
+    const atmospheric=atmosphere(norm(this.position)-EARTH.radius),fraction=clamp(atmospheric.pressure/101325,0,1);
+    const isp=PARTS.engine.ispVac-(PARTS.engine.ispVac-PARTS.engine.isp)*fraction;
+    const maxThrust=PARTS.engine.thrust*isp/PARTS.engine.isp;
+    const powered=!this.passive&&this.charge>0&&!['crashed','landed','destroyed'].includes(this.status);
+    const activeStage=stages(this.craft).at(-1),activeIds=new Set(activeStage.map(p=>p.id));
+    const stageFuel=activeStage.reduce((s,p)=>s+(this.tankFuel[p.id]||0),0);
+    const flight=powered&&this.flight?.expires>now?this.flight:{pitch:0,yaw:0,roll:0};
+    const wrench=powered&&this.wrench?.expires>now?this.wrench:null;
+    let force=[0,0,0],torque=[0,0,0],thrust=0;
+    const engineResults=[];
+    for(const p of this.props.parts.filter(p=>p.type==='engine')){
+      const exposed=activeIds.has(p.id),c=this.engines[p.id],active=powered&&exposed&&c?.enabled&&c.expires>now;
+      let t=wrench&&exposed?clamp(wrench.force[0],0,maxThrust):(active?clamp(c.targetThrust,0,maxThrust):0);
+      const gp=active&&c.hasGimbalCommand?c.gimbalPitch:flight.pitch;
+      const gy=active&&c.hasGimbalCommand?c.gimbalYaw:flight.yaw;
+      const direction=unit([1,-gy*Math.tan(Math.PI/30),gp*Math.tan(Math.PI/30)]);
+      t*=Math.min(1,stageFuel/(t/(isp*G0)*dt||1));
+      const f=mul(direction,t);force=add(force,f);torque=add(torque,cross(sub(p.position,this.props.com),f));thrust+=t;
+      engineResults.push({id:p.id,thrust:t,maxThrust:exposed?maxThrust:0,available:exposed,fuel:exposed?stageFuel:0,gimbalPitch:gp,gimbalYaw:gy});
+    }
+    const wheel=[flight.roll*PARTS.pod.wheelTorque,flight.pitch*PARTS.pod.wheelTorque,flight.yaw*PARTS.pod.wheelTorque];
+    torque=add(torque,wheel);
+    const blocks=this.props.parts.filter(p=>p.type==='rcs');
+    const enabled=blocks.filter(p=>wrench||(this.rcs[p.id]?.enabled&&this.rcs[p.id].expires>now));
+    const rcsMax=enabled.reduce((s,p)=>s+PARTS.rcs.thrust*(wrench?1:this.rcs[p.id].thrustLimit),0);
+    const arm=enabled.length?Math.max(.625,...enabled.map(p=>norm(sub(p.position,this.props.com)))):.625;
+    let rf=wrench?sub(wrench.force,force):[0,0,0];
+    let rt=wrench?sub(wrench.torque,torque):mul([flight.roll,flight.pitch,flight.yaw],rcsMax*arm*.5);
+    // Ideal six-axis RCS allocator with a shared total nozzle-force budget.
+    const requested=norm(rf)+norm(rt)/arm,limit=Math.min(1,rcsMax/(requested||1),this.mono*220*G0/(dt*(requested||1)));
+    rf=mul(rf,limit);rt=mul(rt,limit);const rcsUsed=norm(rf)+norm(rt)/arm;
+    force=add(force,rf);torque=add(torque,rt);
+    const sun=unit([.3,-.8,.5]);const behind=dot(this.position,sun)<0&&norm(cross(this.position,sun))<EARTH.radius;
+    let watts=0;
+    if(!behind)for(const p of this.props.parts.filter(p=>p.type==='solar'))watts+=PARTS.solar.watts*Math.abs(dot(rotate(this.quaternion,[0,-Math.sin(p.angle),Math.cos(p.angle)]),sun));
+    this.charge=clamp(this.charge+(watts-15-norm(wheel)*.12)*dt/3600,0,this.stats.power);
+    const consumed=thrust/(isp*G0)*dt;
+    for(const p of activeStage)if(p.type==='tank')this.tankFuel[p.id]=Math.max(0,this.tankFuel[p.id]-consumed*this.tankFuel[p.id]/(stageFuel||1));
+    this.mono=Math.max(0,this.mono-rcsUsed/(220*G0)*dt);
+    const rcsResults=blocks.map(p=>{
+      const available=enabled.includes(p)?PARTS.rcs.thrust*(wrench?1:this.rcs[p.id].thrustLimit):0;
+      return {id:p.id,thrust:rcsMax?rcsUsed*available/rcsMax:0,thrustLimit:available};
+    });
+    return {force,torque,thrust,engineResults,rcsResults,rcsUsed,watts};
+  }
+  aerodynamic(position,velocity,q,omega){
+    return this.kernel.aerodynamic(this,position,velocity,q,omega);
+  }
+  step(dt=STEP,now=this.time){
+    for(const debris of this.debris)debris.step(dt,now);
+    this.debris=this.debris.filter(d=>!d.expiresAt||d.time<d.expiresAt);
+    if(this.status==='destroyed'){this.time+=dt;return;}
+    if(this.status==='crashed'||this.status==='landed'){
+      const q=axisAngle([0,0,1],EARTH.spin*dt),spin=[0,0,EARTH.spin];
+      this.position=rotate(q,this.position);this.quaternion=qmul(q,this.quaternion);this.velocity=cross(spin,this.position);
+      this.omega=rotate(qconj(this.quaternion),spin);this.acceleration=cross(spin,this.velocity);this.angularAcceleration=[0,0,0];
+      this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};this.lastActuation={force:[0,0,0],torque:[0,0,0],thrust:0,engineResults:[],rcsUsed:0,watts:0};this.time+=dt;return;
+    }
+    this.props=massProperties(this.craft,this.tankFuel,this.stats.mono?this.mono/this.stats.mono:0);
+    const a=this.actuation(now,dt),props=this.props;
+    this.lastActuation=a;
+    const start=[...this.position,...this.velocity,...this.quaternion,...this.omega];
+    if(this.status==='pad'&&a.thrust>props.mass*norm(gravity(this.position))){this.status='flying';this.event('LIFTOFF — 発射台を離れました');}
+    if(this.status==='pad'){
+      const spin=EARTH.spin*(this.time+dt);this.position=[(EARTH.radius+this.padHeight)*Math.cos(spin),(EARTH.radius+this.padHeight)*Math.sin(spin),0];
+      this.velocity=cross([0,0,EARTH.spin],this.position);this.quaternion=axisAngle([0,0,1],spin);this.omega=[0,0,EARTH.spin];
+      this.acceleration=cross([0,0,EARTH.spin],this.velocity);this.angularAcceleration=[0,0,0];
+    }else{
+      const next=this.kernel.integrate(this,start,dt,a);
+      if(!next.every(Number.isFinite)){this.status='crashed';this.clearCommands();this.event('数値計算を停止しました');return;}
+      this.position=next.slice(0,3);this.velocity=next.slice(3,6);this.quaternion=qnorm(next.slice(6,10));this.omega=next.slice(10,13);
+      this.acceleration=mul(sub(this.velocity,start.slice(3,6)),1/dt);this.angularAcceleration=mul(sub(this.omega,start.slice(10,13)),1/dt);
+      const up=unit(this.position),nose=rotate(this.quaternion,[1,0,0]);
+      const alignment=dot(up,nose);
+      const contactExtent=Math.max(this.props.com[0]*alignment,-(this.stats.height-this.props.com[0])*alignment)+.625*Math.sqrt(Math.max(0,1-alignment**2));
+      const lowest=norm(this.position)-EARTH.radius-contactExtent;
+      if(lowest<=0){
+        const impact=norm(sub(this.velocity,cross([0,0,EARTH.spin],this.position)));
+        if(impact>=8){this.time+=dt;this.impactDamage(impact);return;}
+        this.status=impact<4&&dot(up,nose)>.95?'landed':'crashed';this.clearCommands();
+        this.position=mul(up,EARTH.radius+Math.max(.625,contactExtent));this.velocity=[0,0,0];this.omega=[0,0,0];
+        this.event(`${this.status==='landed'?'着地':'地表に衝突'} — ${impact.toFixed(1)} m/s`);
+      }
+    }
+    this.time+=dt;
+    const aero=this.aerodynamic(this.position,this.velocity,this.quaternion,this.omega);
+    this.last={thrust:a.thrust,drag:aero.drag,q:aero.q,mach:aero.mach,aoa:aero.aoa};
+    const altitude=Math.max(0,norm(this.position)-EARTH.radius-this.padHeight);
+    this.maxAltitude=Math.max(this.maxAltitude,altitude);this.maxQ=Math.max(this.maxQ,aero.q);
+    if(this.status==='flying'&&Math.floor(this.time*2)!==Math.floor((this.time-dt)*2)){this.trail.push([...this.position]);if(this.trail.length>2400)this.trail.shift();}
+  }
+  snapshot(){
+    const r=norm(this.position),up=unit(this.position),east=unit(cross([0,0,1],up)),north=cross(up,east);
+    const sv=sub(this.velocity,cross([0,0,EARTH.spin],this.position)),verticalSpeed=dot(sv,up);
+    const orbit=orbitalElements(this.position,this.velocity),inverse=qconj(this.quaternion);
+    return {id:this.id,craft:this.craft,createdAt:this.createdAt,fragment:!!this.fragment,passive:this.passive,impact:this.impact,time:this.time,status:this.status,position:this.position,velocity:this.velocity,quaternion:this.quaternion,omega:this.omega,
+      altitude:Math.max(0,r-EARTH.radius-this.padHeight),altitudeAsl:r-EARTH.radius,verticalSpeed,horizontalSpeed:Math.sqrt(Math.max(0,dot(sv,sv)-verticalSpeed**2)),speed:norm(sv),
+      mass:this.props.mass,fuel:this.fuel,mono:this.mono,charge:this.charge,orbit,...this.last,maxAltitude:this.maxAltitude,maxQ:this.maxQ,
+      upBody:rotate(inverse,up),eastBody:rotate(inverse,east),northBody:rotate(inverse,north),surfaceVelocityBody:rotate(inverse,sv),orbitalVelocityBody:rotate(inverse,this.velocity),
+      gravity:EARTH.mu/(r*r),events:this.events,stats:this.stats,com:this.props.com,
+      engines:this.lastActuation?.engineResults||[],powerGeneration:this.lastActuation?.watts||0,
+      separations:this.separations,debris:this.debris.map(d=>d.snapshot())};
+  }
+}
