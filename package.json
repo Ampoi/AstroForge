@@ -8,27 +8,40 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "build:physics": "node scripts/build-physics.js",
-    "prestart": "npm run build:physics && npm run docs:build",
+    "build:physics": "node --import tsx scripts/build-physics.ts",
+    "prestart": "npm run build",
     "predev": "npm run build:physics && npm run docs:build",
-    "pretest": "npm run build:physics",
+    "pretest": "npm run typecheck && npm run build:physics && npm run build:ui",
     "prebenchmark": "npm run build:physics",
     "prebenchmark:physics": "npm run build:physics",
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js",
-    "test": "node --test tests/*.test.js",
-    "benchmark": "node tests/benchmark.js",
-    "benchmark:physics": "node scripts/benchmark-physics.js",
-    "demo": "node examples/demo.js",
+    "start": "node --import tsx server/index.ts",
+    "dev": "node --import tsx --watch server/index.ts --dev",
+    "test": "node --import tsx --test tests/*.test.js",
+    "benchmark": "node --import tsx tests/benchmark.js",
+    "benchmark:physics": "node --import tsx scripts/benchmark-physics.ts",
+    "demo": "node --import tsx examples/demo.ts",
     "demo:python": "python3 examples/launch.py",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "typecheck": "vue-tsc --noEmit",
+    "build:ui": "vite build",
+    "build": "npm run typecheck && npm run build:physics && npm run build:ui && npm run docs:build"
   },
   "dependencies": {
-    "three": "0.180.0"
+    "three": "0.180.0",
+    "vue": "^3.5.43"
   },
   "devDependencies": {
-    "vitepress": "2.0.0-alpha.20"
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.4",
+    "@types/three": "^0.180.0",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.1",
+    "vitepress": "2.0.0-alpha.20",
+    "vue-tsc": "^3.3.11"
   }
 }

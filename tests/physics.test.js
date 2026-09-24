@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {atmosphere,orbitalElements,gravity,rk4,EARTH,STEP,Simulation} from '../server/physics.js';
-import {starterCraft,massProperties,validateCraft,craftStats,PARTS} from '../shared/craft.js';
-import {norm,dot,mul,sub,rotate,axisAngle} from '../shared/math.js';
+import {atmosphere,orbitalElements,gravity,rk4,EARTH,STEP,Simulation} from '../server/physics.ts';
+import {starterCraft,massProperties,validateCraft,craftStats,PARTS} from '../shared/craft.ts';
+import {norm,dot,mul,sub,rotate,axisAngle} from '../shared/math.ts';
 
 test('standard atmosphere agrees with sea-level and 11 km reference values',()=>{
   assert.ok(Math.abs(atmosphere(0).density-1.225)<.001);

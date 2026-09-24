@@ -2,14 +2,14 @@ import * as THREE from 'three';
 
 // Metres; the launch deck is y=0 so the engine remains at the physics contact plane.
 export function makeLaunchSite(){
-  const site=new THREE.Group(),cube=new THREE.BoxGeometry(1,1,1),cylinder=new THREE.CylinderGeometry(1,1,1,24),palette=new Map();
-  const colors={concrete:'#9badae',wall:'#ccd7d3',roof:'#586c76',steel:'#718791',dark:'#243b47',road:'#38494d',paint:'#e5d6a2',glass:'#285d74',grass:'#425e50',orange:'#df8c59'};
-  function mat(color){color=colors[color]||color;if(!palette.has(color))palette.set(color,new THREE.MeshStandardMaterial({color,roughness:.78,metalness:.12}));return palette.get(color);}
-  function block(w,h,d,x,y,z,color='wall',parent=site){const m=new THREE.Mesh(cube,mat(color));m.scale.set(w,h,d);m.position.set(x,y,z);parent.add(m);return m;}
-  function drum(r,h,x,y,z,color='wall',parent=site){const m=new THREE.Mesh(cylinder,mat(color));m.scale.set(r,h,r);m.position.set(x,y,z);parent.add(m);return m;}
-  function beam(a,b,width=.14,color='steel',parent=site){const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),delta=end.sub(start);const m=block(width,delta.length(),width,0,0,0,color,parent);m.position.copy(start.addScaledVector(delta,.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());return m;}
-  function sign(text,w,h,x,y,z,parent=site){
-    const c=document.createElement('canvas');c.width=512;c.height=128;const ctx=c.getContext('2d');ctx.fillStyle='#203945';ctx.fillRect(0,0,512,128);ctx.fillStyle='#dbe9de';ctx.font='600 48px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,256,64,480);
+  const site=new THREE.Group(),cube=new THREE.BoxGeometry(1,1,1),cylinder=new THREE.CylinderGeometry(1,1,1,24),palette=new Map<string,THREE.MeshStandardMaterial>();
+  const colors: Record<string,string>={concrete:'#9badae',wall:'#ccd7d3',roof:'#586c76',steel:'#718791',dark:'#243b47',road:'#38494d',paint:'#e5d6a2',glass:'#285d74',grass:'#425e50',orange:'#df8c59'};
+  function mat(color: string){color=colors[color]||color;if(!palette.has(color))palette.set(color,new THREE.MeshStandardMaterial({color,roughness:.78,metalness:.12}));return palette.get(color)!;}
+  function block(w: number,h: number,d: number,x: number,y: number,z: number,color='wall',parent=site){const m=new THREE.Mesh(cube,mat(color));m.scale.set(w,h,d);m.position.set(x,y,z);parent.add(m);return m;}
+  function drum(r: number,h: number,x: number,y: number,z: number,color='wall',parent=site){const m=new THREE.Mesh(cylinder,mat(color));m.scale.set(r,h,r);m.position.set(x,y,z);parent.add(m);return m;}
+  function beam(a: number[],b: number[],width=.14,color='steel',parent=site){const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),delta=end.sub(start);const m=block(width,delta.length(),width,0,0,0,color,parent);m.position.copy(start.addScaledVector(delta,.5));m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());return m;}
+  function sign(text: string,w: number,h: number,x: number,y: number,z: number,parent=site){
+    const c=document.createElement('canvas');c.width=512;c.height=128;const ctx=c.getContext('2d')!;ctx.fillStyle='#203945';ctx.fillRect(0,0,512,128);ctx.fillStyle='#dbe9de';ctx.font='600 48px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,256,64,480);
     const map=new THREE.CanvasTexture(c);map.colorSpace=THREE.SRGBColorSpace;
     const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshStandardMaterial({map,roughness:.8}));m.position.set(x,y,z);parent.add(m);
   }
@@ -45,7 +45,7 @@ export function makeLaunchSite(){
   block(85,.08,63,-88,-.9,16,'concrete');block(67,.08,45,105,-.9,26,'concrete');
   for(let x=-112;x<150;x+=12)block(5,.015,.18,x,-.835,68,'paint');
   for(let z=-45;z<65;z+=12)block(.18,.015,5,35,-.835,z,'paint');
-  function building(x,z,w,d,h,label){
+  function building(x: number,z: number,w: number,d: number,h: number,label: string){
     const g=new THREE.Group();g.position.set(x,-.85,z);site.add(g);
     block(w+2,.5,d+2,0,.15,0,'concrete',g);block(w,h,d,0,h/2,0,'wall',g);block(w+.9,.65,d+.9,0,h,0,'roof',g);
     for(const side of [-1,1])for(let px=-w/2+3;px<w/2-1;px+=4)for(let y=3;y<h-1;y+=3.5)block(2.8,1.45,.12,px,y,side*(d/2+.06),'glass',g);
@@ -81,8 +81,8 @@ export function makeLaunchSite(){
   for(let z=-115;z<=160;z+=15)for(const x of [-150,165])block(.15,2.4,.15,x,.15,z,'steel');
   for(const x of [-150,165])for(const y of [.2,1.2])block(.07,.07,275,x,y,22.5,'steel');
   // Batch repeated primitives: facility detail costs a few draw calls per material.
-  site.updateMatrixWorld(true);const batches=new Map(),remove=[];
-  site.traverse(o=>{if(o.geometry!==cube&&o.geometry!==cylinder)return;const key=o.geometry.uuid+o.material.uuid;if(!batches.has(key))batches.set(key,[]);batches.get(key).push(o);remove.push(o);});
+  site.updateMatrixWorld(true);const batches=new Map<string,THREE.Mesh<THREE.BufferGeometry,THREE.Material>[]>(),remove: THREE.Mesh[]=[];
+  site.traverse(o=>{if(!(o instanceof THREE.Mesh))return;if(o.geometry!==cube&&o.geometry!==cylinder)return;const key=o.geometry.uuid+(o.material as THREE.Material).uuid;if(!batches.has(key))batches.set(key,[]);batches.get(key)!.push(o);remove.push(o);});
   for(const meshes of batches.values()){const instances=new THREE.InstancedMesh(meshes[0].geometry,meshes[0].material,meshes.length);meshes.forEach((m,i)=>instances.setMatrixAt(i,m.matrixWorld));instances.castShadow=true;instances.receiveShadow=true;site.add(instances);}
   for(const m of remove)m.removeFromParent();
   return site;

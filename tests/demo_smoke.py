@@ -47,7 +47,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
 def start(duration=240):
-    child = subprocess.Popen(['node', 'examples/demo.js', '--command-port', str(command_port),
+    child = subprocess.Popen(['node', '--import', 'tsx', 'examples/demo.ts', '--command-port', str(command_port),
                               '--telemetry-port', str(telemetry_port), '--duration', str(duration)], cwd=ROOT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     processes.append(child)

@@ -28,7 +28,7 @@ parsers = {'pylon_session': simulator_state_from_packet, 'pylon_flight_state': f
     'pylon_wrench_status': wrench_feedback_from_packet, 'pylon_imu': imu_from_packet,
     'pylon_vehicle_health': vehicle_health_from_packet, 'pylon_control_snapshot': control_snapshot_from_packet}
 root = Path(__file__).resolve().parents[1]
-proc = subprocess.Popen(['node', 'tests/compatibility-driver.js'], cwd=root,
+proc = subprocess.Popen(['node', '--import', 'tsx', 'tests/compatibility-driver.js'], cwd=root,
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 try:
     packets = json.loads(proc.stdout.readline())

@@ -1,50 +1,59 @@
+import type {Simulation} from './physics.ts';
+import type {WireCommand, Packet} from './types.ts';
+import {errorMessage} from '../shared/errors.ts';
 import {randomUUID} from 'node:crypto';
-import {appendObservations} from './observations.js';
-import {EARTH} from './physics.js';
-import {PARTS,splitCraft,stages} from '../shared/craft.js';
-import {add,sub,mul,dot,cross,norm,clamp,rotate,qconj,qmul,axisAngle} from '../shared/math.js';
+import {appendObservations} from './observations.ts';
+import {EARTH} from './physics.ts';
+import {PARTS,splitCraft,stages} from '../shared/craft.ts';
+import {add,sub,mul,dot,cross,norm,clamp,rotate,qconj,qmul,axisAngle} from '../shared/math.ts';
 
-const identity=v=>typeof v==='string'&&v.trim().length>0&&v.length<=64;
-const finite=v=>typeof v==='number'&&Number.isFinite(v);
-const range=(v,a,b)=>finite(v)&&v>=a&&v<=b;
-const vector=v=>Array.isArray(v)&&v.length===3&&v.every(finite);
-const boolean=v=>typeof v==='boolean';
-function requireValue(ok,reason){if(!ok)throw Error(reason);}
+const identity=(v: unknown)=>typeof v==='string'&&v.trim().length>0&&v.length<=64;
+const finite=(v: unknown): v is number=>typeof v==='number'&&Number.isFinite(v);
+const range=(v: unknown,a: number,b: number)=>finite(v)&&v>=a&&v<=b;
+const vector=(v: unknown)=>Array.isArray(v)&&v.length===3&&v.every(finite);
+const boolean=(v: unknown)=>typeof v==='boolean';
+function requireValue(ok: unknown,reason: string | null): asserts ok{if(!ok)throw Error(reason ?? 'invalid_command');}
 
 export class PylonProtocol{
-  constructor(sim,clock=()=>performance.now()/1000){
+  sim: Simulation; clock: ()=>number; instance: string; generation=0; observation=0; started: number;
+  received=0; accepted=0; rejected=0; available=false; timeScale=1; epoch=''; vessel='';
+  sequences=new Map<string,number>();
+  lastCommand: {time:number;type:string;accepted:boolean;reason:string} | null=null;
+  owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason:''};
+
+  constructor(sim: Simulation,clock=()=>performance.now()/1000){
     this.sim=sim;this.clock=clock;this.instance=randomUUID().replaceAll('-','');this.generation=0;this.observation=0;this.started=clock();
     this.received=0;this.accepted=0;this.rejected=0;this.lastCommand=null;this.available=false;this.newSession();
   }
   newSession(){
     this.generation++;this.epoch=randomUUID().replaceAll('-','');this.vessel=randomUUID().replaceAll('-','');this.sequences=new Map();this.clearOwner('session_changed');this.sim.clearCommands();
   }
-  clearOwner(reason){this.owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason};this.sim.clearCommands();}
+  clearOwner(reason: string){this.owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason};this.sim.clearCommands();}
   expire(){if(this.owner.state===1&&this.clock()>this.owner.expires)this.clearOwner('lease_expired');}
   fields(){return {version:1,runtimeInstance:this.instance,runtimeGeneration:this.generation,runtimeEpoch:this.epoch,runtimeVesselId:this.vessel,vesselId:this.vessel};}
-  packet(type,fields={}){return {type,...this.fields(),observationSequence:this.observation,universalTime:this.sim.time,...fields};}
+  packet<T extends object>(type: string,fields: T={} as T){return {type,...this.fields(),observationSequence:this.observation,universalTime:this.sim.time,...fields};}
   authority(reason=this.owner.reason){
     this.expire();const o=this.owner;
     return this.packet('pylon_control_authority_state',{vessel:this.sim.craft.name,state:o.state,controllerId:o.controllerId,leaseId:o.leaseId,priority:o.priority,
       leaseRemainingSeconds:o.state===1?Math.max(0,o.expires-this.clock()):0,sasSuppressed:o.sasSuppressed,emergencyStop:o.state===2,lastSequence:o.lastSequence,reason});
   }
-  checkEnvelope(p){
+  checkEnvelope(p: WireCommand){
     requireValue(p&&typeof p==='object'&&!Array.isArray(p)&&p.version===1&&typeof p.type==='string','invalid_envelope');
-    const f=this.fields();for(const k of Object.keys(f))requireValue(p[k]===f[k],'runtime_session_mismatch');
+    const f=this.fields();for(const k of Object.keys(f) as (keyof typeof f)[])requireValue(p[k]===f[k],'runtime_session_mismatch');
     requireValue(this.available&&!['crashed','landed','destroyed'].includes(this.sim.status),'control_unavailable');
     requireValue(identity(p.controllerId)&&identity(p.leaseId),'invalid_lease');
     requireValue(Number.isSafeInteger(p.sequence)&&p.sequence>0,'invalid_sequence');
   }
-  checkSequence(p,stream){
+  checkSequence(p: WireCommand,stream: string){
     const key=JSON.stringify([p.controllerId,p.leaseId,stream]);requireValue(p.sequence>(this.sequences.get(key)||0),'stale_sequence');return key;
   }
-  advance(p,key){
+  advance(p: WireCommand,key: string){
     requireValue(this.sequences.has(key)||this.sequences.size<2048,'sequence_capacity');
     this.sequences.set(key,p.sequence);this.owner.lastSequence=p.sequence;
   }
-  owns(p){return this.owner.state===1&&p.controllerId===this.owner.controllerId&&p.leaseId===this.owner.leaseId;}
-  authorize(p){requireValue(this.owns(p),this.owner.state===2?'emergency_stop':'lease_not_owned');}
-  authorityCommand(p){
+  owns(p: WireCommand){return this.owner.state===1&&p.controllerId===this.owner.controllerId&&p.leaseId===this.owner.leaseId;}
+  authorize(p: WireCommand){requireValue(this.owns(p),this.owner.state===2?'emergency_stop':'lease_not_owned');}
+  authorityCommand(p: WireCommand){
     const key=this.checkSequence(p,'authority'),o=this.owner,now=this.clock();
     switch(p.action){
       case 'acquire':
@@ -65,7 +74,7 @@ export class PylonProtocol{
       default:throw Error('unsupported_authority_action');
     }
   }
-  validateOperation(p){
+  validateOperation(p: WireCommand){
     if(p.type==='pylon_actuator_command'&&p.actuatorType==='separation'){
       requireValue(boolean(p.separate),'invalid_separation');
       requireValue(this.sim.craft.parts.some(c=>c.id===p.name&&c.type==='decoupler'),'unknown_actuator');
@@ -89,19 +98,19 @@ export class PylonProtocol{
     if(p.actuatorType==='engine'){
       requireValue(range(p.targetThrust,0,1e8),'invalid_thrust');
       requireValue(boolean(p.hasGimbalCommand??false)&&['gimbalPitch','gimbalYaw','gimbalRoll'].every(k=>range(p[k]??0,-1,1)),'invalid_gimbal');
-      return {stream:`actuator:engine:${p.name}`,apply:()=>{this.sim.wrench=null;this.sim.engines[p.name]={gimbalPitch:0,gimbalYaw:0,gimbalRoll:0,...p,expires};}};
+      return {stream:`actuator:engine:${p.name}`,apply:()=>{this.sim.wrench=null;this.sim.engines[p.name]={...p,gimbalPitch:p.gimbalPitch??0,gimbalYaw:p.gimbalYaw??0,gimbalRoll:p.gimbalRoll??0,expires};}};
     }
     requireValue(range(p.thrustLimit,0,1e8),'invalid_rcs_limit');
     return {stream:`actuator:rcs:${p.name}`,apply:()=>{this.sim.rcs[p.name]={...p,thrustLimit:clamp(p.thrustLimit/PARTS.rcs.thrust,0,1),expires};}};
   }
-  batch(p){
+  batch(p: WireCommand){
     requireValue(boolean(p.hasFlight)&&boolean(p.hasSeparation)&&boolean(p.renewLease),'unsupported_batch');
     requireValue(Array.isArray(p.engineJson)&&p.engineJson.length<=16,'invalid_batch_engines');
     if(p.renewLease)requireValue(range(p.leaseDurationSeconds,.1,10)&&boolean(p.suppressSas),'invalid_lease');
-    const children=p.engineJson.map(raw=>{requireValue(typeof raw==='string','invalid_batch_member');const e=JSON.parse(raw);requireValue(e.type==='pylon_actuator_command'&&e.actuatorType==='engine','invalid_batch_engine');return e;});
-    if(p.hasFlight){requireValue(typeof p.flightJson==='string','invalid_batch_flight');const f=JSON.parse(p.flightJson);requireValue(f.type==='pylon_flight_control_command','invalid_batch_flight');children.push(f);}
+    const children=p.engineJson.map(raw=>{requireValue(typeof raw==='string','invalid_batch_member');const e=JSON.parse(raw) as WireCommand;requireValue(e.type==='pylon_actuator_command'&&e.actuatorType==='engine','invalid_batch_engine');return e;});
+    if(p.hasFlight){requireValue(typeof p.flightJson==='string','invalid_batch_flight');const f=JSON.parse(p.flightJson) as WireCommand;requireValue(f.type==='pylon_flight_control_command','invalid_batch_flight');children.push(f);}
     if(p.hasSeparation){
-      requireValue(typeof p.separationJson==='string','invalid_batch_separation');const s=JSON.parse(p.separationJson);
+      requireValue(typeof p.separationJson==='string','invalid_batch_separation');const s=JSON.parse(p.separationJson) as WireCommand;
       requireValue(s.type==='pylon_actuator_command'&&s.actuatorType==='separation','invalid_batch_separation');
       this.validateOperation(s);
       if(s.separate){const {retained}=splitCraft(this.sim.craft,s.name);requireValue(children.every(c=>c.actuatorType!=='engine'||retained.parts.some(r=>r.id===c.name)),'batch_targets_detached_part');}
@@ -117,23 +126,23 @@ export class PylonProtocol{
     if(p.renewLease){this.owner.expires=this.clock()+p.leaseDurationSeconds;this.owner.sasSuppressed=p.suppressSas;}
     for(const op of ops)op.apply();
   }
-  receive(data){
-    this.received++;this.expire();let p;
+  receive(data: Buffer){
+    this.received++;this.expire();let p: WireCommand | undefined;
     try{
-      requireValue(data.length<=32768,'packet_too_large');p=JSON.parse(data.toString('utf8'));this.checkEnvelope(p);
+      requireValue(data.length<=32768,'packet_too_large');p=JSON.parse(data.toString('utf8')) as WireCommand;this.checkEnvelope(p);
       if(p.type==='pylon_control_authority_command')this.authorityCommand(p);
       else{this.authorize(p);if(p.type==='pylon_control_batch')this.batch(p);else{const op=this.validateOperation(p),key=this.checkSequence(p,op.stream);this.advance(p,key);op.apply();}this.owner.reason='command_accepted';}
       this.accepted++;this.lastCommand={time:this.clock(),type:p.type,accepted:true,reason:this.owner.reason};
       return this.authority();
-    }catch(e){this.rejected++;this.lastCommand={time:this.clock(),type:p?.type||'invalid',accepted:false,reason:e.message};return this.authority(e.message);}
+    }catch(e){this.rejected++;this.lastCommand={time:this.clock(),type:p?.type||'invalid',accepted:false,reason:errorMessage(e)};return this.authority(errorMessage(e));}
   }
   telemetry(){
-    this.expire();const s=this.sim.snapshot(),now=this.clock(),f=this.sim.flight,active=this.owner.state===1&&f?.expires>now&&this.sim.charge>0;
+    this.expire();const s=this.sim.snapshot(),now=this.clock(),f=this.sim.flight,active=this.owner.state===1&&!!f&&f.expires>now&&this.sim.charge>0;
     const session=this.packet('pylon_session',{available:this.available&&!['crashed','landed','destroyed'].includes(s.status),vesselName:this.sim.craft.name,observationSequence:++this.observation,
       realtimeSinceStartup:now-this.started,paused:!this.available,packed:false,warpRate:this.timeScale||1,physicsWarp:(this.timeScale||1)>1});
-    const packets=[session];if(!this.available)return packets;
+    const packets: Packet[]=[session];if(!this.available)return packets;
     const spin=[0,0,EARTH.spin],inverse=qconj(this.sim.quaternion),spinQ=axisAngle([0,0,1],-EARTH.spin*s.time);
-    const enuQ=qmul([-.5,-.5,-.5,.5],spinQ),enu=v=>rotate(enuQ,v);
+    const enuQ=qmul([-.5,-.5,-.5,.5],spinQ),enu=(v: number[])=>rotate(enuQ,v);
     const sv=sub(s.velocity,cross(spin,s.position));
     const av=sub(this.sim.omega,rotate(inverse,spin));
     const fixed=rotate(spinQ,s.position);
@@ -162,15 +171,15 @@ export class PylonProtocol{
       if(a.actuatorType==='separation'){
         packets.push(this.packet('pylon_actuator_state',{...a,mechanism:'decoupler',available:!this.sim.separationIssue(a.name),separated:false}));continue;
       }
-      const c=(a.actuatorType==='engine'?this.sim.engines:this.sim.rcs)[a.name],directActive=!!c&&c.expires>now&&this.owner.state===1;
+      const c=this.sim.engines[a.name] ?? this.sim.rcs[a.name],directActive=!!c&&c.expires>now&&this.owner.state===1;
       const wrenchActive=!!this.sim.wrench&&this.sim.wrench.expires>now&&this.owner.state===1,commandActive=directActive||wrenchActive;
       if(a.actuatorType==='engine'){
         const e=s.engines.find(e=>e.id===a.name);
-        const gimbalActive=directActive&&c.hasGimbalCommand&&!wrenchActive;
-        const stage=stages(this.sim.craft).at(-1),available=stage.some(p=>p.id===a.name),stageFuel=stage.reduce((sum,p)=>sum+(this.sim.tankFuel[p.id]||0),0);
+        const gimbalActive=directActive&&'hasGimbalCommand' in c&&c.hasGimbalCommand&&!wrenchActive;
+        const stage=stages(this.sim.craft).at(-1)!,available=stage.some(p=>p.id===a.name),stageFuel=stage.reduce((sum,p)=>sum+(this.sim.tankFuel[p.id]||0),0);
         packets.push(this.packet('pylon_actuator_state',{...a,enabled:available&&(wrenchActive||directActive&&c.enabled),commandActive:available&&commandActive,throttle:(e?.thrust||0)/(e?.maxThrust||PARTS.engine.thrust),
           thrust:e?.thrust||0,maxThrust:available?(e?.maxThrust||PARTS.engine.thrust):0,available,operational:available&&stageFuel>0&&s.charge>0&&!['crashed','landed','destroyed'].includes(s.status),gimbalAvailable:true,gimbalCommandActive:available&&!!gimbalActive,
-          gimbalPitch:gimbalActive?c.gimbalPitch:0,gimbalYaw:gimbalActive?c.gimbalYaw:0,gimbalRoll:gimbalActive?c.gimbalRoll:0,flameout:available&&stageFuel<=0}));
+          gimbalPitch:gimbalActive&&'gimbalPitch' in c?c.gimbalPitch:0,gimbalYaw:gimbalActive&&'gimbalYaw' in c?c.gimbalYaw:0,gimbalRoll:gimbalActive&&'gimbalRoll' in c?c.gimbalRoll:0,flameout:available&&stageFuel<=0}));
       }else{
         const r=this.sim.lastActuation?.rcsResults?.find(r=>r.id===a.name);
         packets.push(this.packet('pylon_actuator_state',{...a,enabled:wrenchActive||directActive&&c.enabled,active:(r?.thrust||0)>0,commandActive,thrust:r?.thrust||0,maxThrust:PARTS.rcs.thrust,thrustLimit:r?.thrustLimit||0,flameout:s.mono<=0}));

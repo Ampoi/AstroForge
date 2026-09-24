@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Simulation,EARTH} from '../server/physics.js';
-import {PylonProtocol} from '../server/protocol.js';
-import {imuSample} from '../server/observations.js';
-import {starterCraft,PARTS} from '../shared/craft.js';
-import {norm,mul,unit,cross,axisAngle,dot} from '../shared/math.js';
+import {Simulation,EARTH} from '../server/physics.ts';
+import {PylonProtocol} from '../server/protocol.ts';
+import {imuSample} from '../server/observations.ts';
+import {starterCraft,PARTS} from '../shared/craft.ts';
+import {norm,mul,unit,cross,axisAngle,dot} from '../shared/math.ts';
 
 test('stationary IMU measures effective gravity and inertial Earth rotation',()=>{
   const sim=new Simulation(starterCraft());

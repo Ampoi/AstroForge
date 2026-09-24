@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PylonProtocol} from '../server/protocol.js';
-import {Simulation} from '../server/physics.js';
-import {starterCraft} from '../shared/craft.js';
+import {PylonProtocol} from '../server/protocol.ts';
+import {Simulation} from '../server/physics.ts';
+import {starterCraft} from '../shared/craft.ts';
 
 function setup(){let now=0;const sim=new Simulation(starterCraft()),p=new PylonProtocol(sim,()=>now);p.available=true;
   const command=(type,fields={})=>({type,...p.fields(),controllerId:'test',leaseId:'lease',sequence:1,...fields});

@@ -1,19 +1,23 @@
+function isStandardMesh(o: THREE.Object3D): o is THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial>{return o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial;}
+import type {Design, Assembly, LayoutPart, PartType, Mode, SurfaceHit, AssemblyPlacement, PlacementOptions} from '../shared/types.ts';
+import type {FlightSnapshot} from '../server/types.ts';
+import {toAssembly} from '../shared/assembly.ts';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {PARTS,layoutCraft,surfaceRadius} from '/shared/craft.js';
-import {SURFACE_LEVELS,SURFACE_ANGLES} from '/shared/placement.js';
-import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '/shared/assembly.js';
-import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.js';
-import {makeLaunchSite} from './launch-site.js';
+import {PARTS,layoutCraft,surfaceRadius} from '../shared/craft.ts';
+import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
+import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
+import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
+import {makeLaunchSite} from './launch-site.ts';
 
-const materials={};
-function material(color,metal=.25,rough=.55){const key=color+metal+rough;return materials[key]??=new THREE.MeshStandardMaterial({color,metalness:metal,roughness:rough});}
-const cyl=(rt,rb,h,color,metal=.25)=>new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,40),material(color,metal));
-const box=(x,y,z,color,metal=.2)=>new THREE.Mesh(new THREE.BoxGeometry(x,y,z),material(color,metal));
-function put(group,mesh,x=0,y=0,z=0){mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);return mesh;}
-let tankTexture,solarTexture;
+const materials: Record<string,THREE.MeshStandardMaterial>={};
+function material(color: THREE.ColorRepresentation,metal=.25,rough=.55){const key=String(color)+metal+rough;return materials[key]??=new THREE.MeshStandardMaterial({color,metalness:metal,roughness:rough});}
+const cyl=(rt: number,rb: number,h: number,color: THREE.ColorRepresentation,metal=.25)=>new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,40),material(color,metal));
+const box=(x: number,y: number,z: number,color: THREE.ColorRepresentation,metal=.2)=>new THREE.Mesh(new THREE.BoxGeometry(x,y,z),material(color,metal));
+function put<T extends THREE.Object3D>(group: THREE.Object3D,mesh: T,x=0,y=0,z=0){mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);return mesh;}
+let tankTexture: THREE.Texture,solarTexture: THREE.Texture;
 function makeTankTexture(){
-  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;const ctx=canvas.getContext('2d');
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;const ctx=canvas.getContext('2d')!;
   ctx.fillStyle='#d9dfd9';ctx.fillRect(0,0,1024,512);
   ctx.fillStyle='#b8c3c0';ctx.fillRect(0,25,1024,3);ctx.fillRect(0,477,1024,3);
   ctx.fillStyle='#e38c65';ctx.fillRect(0,405,1024,24);
@@ -22,11 +26,11 @@ function makeTankTexture(){
   const t=new THREE.CanvasTexture(canvas);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=4;return t;
 }
 function makeSolarTexture(){
-  const c=document.createElement('canvas');c.width=256;c.height=128;const ctx=c.getContext('2d');ctx.fillStyle='#102b40';ctx.fillRect(0,0,256,128);
+  const c=document.createElement('canvas');c.width=256;c.height=128;const ctx=c.getContext('2d')!;ctx.fillStyle='#102b40';ctx.fillRect(0,0,256,128);
   for(let x=3;x<256;x+=32)for(let y=3;y<128;y+=32){ctx.fillStyle='#276281';ctx.fillRect(x,y,27,27);ctx.fillStyle='#5592a7';ctx.fillRect(x+1,y+10,25,1);ctx.fillRect(x+1,y+20,25,1);}
   const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
 }
-export function makePart(type){
+export function makePart(type: PartType){
   const g=new THREE.Group();
   if(type==='tank'){
     tankTexture??=makeTankTexture();const m=new THREE.MeshStandardMaterial({map:tankTexture,metalness:.25,roughness:.5});
@@ -75,10 +79,28 @@ export function makePart(type){
   }
   return g;
 }
-function disposeGroup(g){g.traverse(o=>{o.geometry?.dispose();if(o.material&&!Object.values(materials).includes(o.material))o.material.dispose?.();});}
+function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof THREE.Mesh))return;o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(!Object.values(materials).includes(m))m.dispose();});}
 
 export class RocketScene{
-  constructor(element,onSelect,onPlace,onPlacement=()=>{}){
+  element: HTMLElement; onSelect: (id:string | null)=>void;
+  onPlace: (type:PartType, placement:AssemblyPlacement | null, movingId?:string)=>void;
+  onPlacement: (placement:AssemblyPlacement | null | false | undefined, draft?:Assembly)=>void;
+  mode: Mode='editor'; selected: string | null=null; placing: PartType | null=null;
+  groups=new Map<string,THREE.Group>(); showMarkers=false; scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera; followCamera: THREE.PerspectiveCamera; globeCamera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
+  controls: OrbitControls; followControls: OrbitControls; globeControls: OrbitControls;
+  ground: THREE.Group; editorGround: THREE.Group; launchSite: THREE.Group; grid: THREE.GridHelper;
+  hangar: THREE.Group; rocket: THREE.Group; markers: THREE.Group; snapGroup: THREE.Group; preview: THREE.Group;
+  placementOptions={count:4,mirror:false,snap:true}; debrisGroups=new Map<string,THREE.Group>();
+  raycaster: THREE.Raycaster; pointer: THREE.Vector2; down: {x:number;y:number} | null=null;
+  moving: LayoutPart | null=null; dragPlane: THREE.Plane | null=null; grabOffset: THREE.Vector3 | null=null;
+  observer: ResizeObserver; running=false; frame=0; private listeners=new AbortController();
+  craft: Assembly=toAssembly({name:'',parts:[]}); stats=assemblyStats(this.craft); parts: LayoutPart[]=[];
+  flame=new THREE.Group(); selectionBox: THREE.BoxHelper | null=null; placement: AssemblyPlacement | null=null;
+  currentFlight: FlightSnapshot | null=null; craftSignature: string | null=null;
+
+  constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{}){
     this.element=element;this.onSelect=onSelect;this.onPlace=onPlace;this.mode='editor';this.selected=null;this.placing=null;this.groups=new Map();this.showMarkers=false;
     this.scene=new THREE.Scene();this.scene.fog=new THREE.FogExp2('#172a35',.013);
     this.camera=new THREE.PerspectiveCamera(34,1,.05,100000);this.camera.position.set(12,8,15);
@@ -118,83 +140,85 @@ export class RocketScene{
         const grab=this.raycaster.ray.intersectPlane(this.dragPlane,new THREE.Vector3());
         this.grabOffset=grab?center.clone().sub(grab):new THREE.Vector3();
       }
-    },true);
+    },{capture:true,signal:this.listeners.signal});
     element.addEventListener('pointermove',e=>{
       if(this.moving){
         if(!this.down||Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)<5&&!this.placing)return;
         if(!this.placing){this.setPlacement(this.moving.type);this.onSelect(this.moving.id);}
         this.updatePlacement(e);
       }else if(this.placing)this.updatePlacement(e);
-    });
+    },{signal:this.listeners.signal});
     element.addEventListener('pointerup',e=>{
       const moving=this.moving;
       if(this.placing&&e.button===0){const type=this.placing,placement=this.updatePlacement(e);this.onPlace(type,placement,moving?.id);this.cancelPlacement();}
       else if(this.down&&Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)<=5&&this.mode==='editor')this.pick(e);
       this.moving=null;this.down=null;this.controls.enabled=true;
       if(element.hasPointerCapture(e.pointerId))element.releasePointerCapture(e.pointerId);
-    });
+    },{signal:this.listeners.signal});
     // Native palette drag-and-drop also sends pointercancel to the canvas.
     // Only cancel a pointer-driven move here; dragend handles palette cancellation.
-    element.addEventListener('pointercancel',()=>{if(this.moving)this.cancelPlacement();});
-    window.addEventListener('blur',()=>this.cancelPlacement());
-    element.addEventListener('dragover',e=>{if(this.mode==='editor'&&this.placing){e.preventDefault();e.dataTransfer.dropEffect='copy';this.updatePlacement(e);}});
-    element.addEventListener('dragleave',e=>{if(!element.contains(e.relatedTarget)){this.clearPreview();this.onPlacement(null);}});
+    element.addEventListener('pointercancel',()=>{if(this.moving)this.cancelPlacement();},{signal:this.listeners.signal});
+    window.addEventListener('blur',()=>this.cancelPlacement(),{signal:this.listeners.signal});
+    element.addEventListener('dragover',e=>{if(this.mode==='editor'&&this.placing){e.preventDefault();e.dataTransfer!.dropEffect='copy';this.updatePlacement(e);}},{signal:this.listeners.signal});
+    element.addEventListener('dragleave',e=>{if(!element.contains(e.relatedTarget as Node | null)){this.clearPreview();this.onPlacement(null);}},{signal:this.listeners.signal});
     element.addEventListener('drop',e=>{
       e.preventDefault();if(this.mode!=='editor'||!this.placing)return;
-      const type=e.dataTransfer.getData('text/part'),placement=this.updatePlacement(e);
+      const type=e.dataTransfer!.getData('text/part'),placement=this.updatePlacement(e);
       if(type===this.placing)this.onPlace(type,placement);
       this.setPlacement(null);
-    });
-    document.addEventListener('keydown',e=>{if(e.key==='Escape')this.cancelPlacement();});
+    },{signal:this.listeners.signal});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')this.cancelPlacement();},{signal:this.listeners.signal});
     this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(element);this.resize();
     this.running=true;this.animate();
   }
   resize(){const {width,height}=this.element.getBoundingClientRect();if(!width||!height)return;for(const camera of [this.followCamera,this.globeCamera]){camera.aspect=width/height;camera.updateProjectionMatrix();}this.renderer.setSize(width,height);}
-  hit(e,surface=false){
+  hit(e: MouseEvent | DragEvent, surface: true): SurfaceHit | null;
+  hit(e: MouseEvent | DragEvent, surface?: false): string | null;
+  hit(e: MouseEvent | DragEvent,surface=false): SurfaceHit | string | null{
     const r=this.renderer.domElement.getBoundingClientRect();this.pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);this.camera.updateMatrixWorld(true);this.raycaster.setFromCamera(this.pointer,this.camera);
     const excluded=surface?movingIds(this.craft,this.moving?.id):new Set();
-    const groups=surface?this.parts.filter(p=>!p.def.radial&&!excluded.has(p.id)).map(p=>this.groups.get(p.id)):[...this.groups.values()];
+    const groups=surface?this.parts.filter(p=>!p.def.radial&&!excluded.has(p.id)).map(p=>this.groups.get(p.id)!):[...this.groups.values()];
     const hit=this.raycaster.intersectObjects(groups,true)[0];if(!hit)return null;
-    let obj=hit.object;while(obj&&!obj.userData.partId)obj=obj.parent;
+    let obj: THREE.Object3D | null=hit.object;while(obj&&!obj.userData.partId)obj=obj.parent;
     if(!surface)return obj?.userData.partId||null;
-    const point=this.rocket.worldToLocal(hit.point.clone()),normal=hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-    return {id:obj.userData.partId,point:[point.y,-point.x,point.z],normal:[normal.y,-normal.x,normal.z]};
+    const point=this.rocket.worldToLocal(hit.point.clone()),normal=hit.face!.normal.clone().transformDirection(hit.object.matrixWorld);
+    return {id:obj!.userData.partId,point:[point.y,-point.x,point.z],normal:[normal.y,-normal.x,normal.z]};
   }
-  pick(e){this.onSelect(this.hit(e));}
-  setCraft(craft){
+  pick(e: MouseEvent){this.onSelect(this.hit(e));}
+  setCraft(craft: Design){
     const oldHeight=this.stats?.height;
-    this.craft=craft;this.stats=assemblyStats(craft);this.parts=assemblyLayout(craft);
+    this.craft=toAssembly(craft);this.stats=assemblyStats(craft);this.parts=assemblyLayout(craft);
     if(this.mode==='flight'&&oldHeight){const dy=(this.stats.height-oldHeight)/2;this.followCamera.position.y+=dy;this.followControls.target.y+=dy;}
     this.select(null);for(const g of this.groups.values()){this.rocket.remove(g);disposeGroup(g);}this.groups.clear();
-    for(const p of this.parts){const g=makePart(p.type);g.userData.partId=p.id;g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle+Math.PI;if(p.connected===false)this.ghostMaterial(g);this.rocket.add(g);this.groups.set(p.id,g);}
+    for(const p of this.parts){const g=makePart(p.type);g.userData.partId=p.id;g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle!+Math.PI;if(p.connected===false)this.ghostMaterial(g);this.rocket.add(g);this.groups.set(p.id,g);}
     if(this.flame){this.rocket.remove(this.flame);disposeGroup(this.flame);}
     this.flame=new THREE.Group();
     const outer=new THREE.Mesh(new THREE.ConeGeometry(.35,3,24),new THREE.MeshBasicMaterial({color:'#ffa060',transparent:true,opacity:.6,depthWrite:false}));outer.rotation.z=Math.PI;outer.position.y=-1.5;this.flame.add(outer);
     const inner=new THREE.Mesh(new THREE.ConeGeometry(.17,1.7,24),new THREE.MeshBasicMaterial({color:'#eafcff',transparent:true,opacity:.9,depthWrite:false}));inner.rotation.z=Math.PI;inner.position.y=-.8;this.flame.add(inner);this.flame.visible=false;this.rocket.add(this.flame);
     for(const c of [...this.markers.children]){this.markers.remove(c);disposeGroup(c);}
     const core=this.parts.filter(p=>!p.def.radial&&p.connected!==false),bottom=core.length?Math.min(...core.map(p=>p.position[0]-p.def.height/2)):0,axis=core[0]?.position||[0,0,0];
-    for(const [y,color] of [[this.stats.com,'#f8b178'],[this.stats.cp,'#78c7c0']]){
+    for(const [y,color] of ([[this.stats.com,'#f8b178'],[this.stats.cp,'#78c7c0']] as [number,string][])){
       const m=new THREE.Mesh(new THREE.SphereGeometry(.10,16,12),new THREE.MeshBasicMaterial({color,depthTest:false}));m.position.set(-axis[1],y+bottom,axis[2]+.76);m.renderOrder=10;this.markers.add(m);
       const ring=new THREE.Mesh(new THREE.TorusGeometry(.20,.015,8,32),new THREE.MeshBasicMaterial({color,depthTest:false}));ring.position.copy(m.position);ring.renderOrder=10;this.markers.add(ring);
     }
     this.markers.visible=this.showMarkers&&this.mode==='editor';this.setPlacement(this.placing);
   }
-  select(id){
+  select(id: string | null){
     this.selected=id;if(this.selectionBox){this.scene.remove(this.selectionBox);this.selectionBox.geometry.dispose();this.selectionBox.material.dispose();this.selectionBox=null;}
-    if(id&&this.groups.has(id)){this.selectionBox=new THREE.BoxHelper(this.groups.get(id),'#f3a67f');this.selectionBox.material.transparent=true;this.selectionBox.material.opacity=.65;this.scene.add(this.selectionBox);}
+    if(id&&this.groups.has(id)){this.selectionBox=new THREE.BoxHelper(this.groups.get(id)!,'#f3a67f');this.selectionBox.material.transparent=true;this.selectionBox.material.opacity=.65;this.scene.add(this.selectionBox);}
   }
   clearPreview(dispose=false){
-    for(const p of this.parts||[]){const g=this.groups.get(p.id);g.position.set(-p.position[1],p.position[0],p.position[2]);g.visible=true;}
+    for(const p of this.parts||[]){const g=this.groups.get(p.id)!;g.position.set(-p.position[1],p.position[0],p.position[2]);g.visible=true;}
     this.preview.visible=false;
     this.markers.visible=this.showMarkers&&this.mode==='editor'&&!!this.parts?.length;
     if(dispose)for(const c of [...this.preview.children]){this.preview.remove(c);disposeGroup(c);}
     this.placement=null;
   }
   cancelPlacement(){this.moving=null;this.down=null;this.dragPlane=null;this.grabOffset=null;this.controls.enabled=true;this.setPlacement(null);}
-  ghostMaterial(group){
-    group.traverse(o=>{if(!o.isMesh)return;const old=o.material;o.material=old.clone();o.material.transparent=true;o.material.opacity=.28;o.material.depthWrite=false;if(!Object.values(materials).includes(old))old.dispose();o.castShadow=false;});
+  ghostMaterial(group: THREE.Group){
+    group.traverse(o=>{if(!(isStandardMesh(o)))return;const old=o.material;o.material=old.clone();o.material.transparent=true;o.material.opacity=.28;o.material.depthWrite=false;if(!Object.values(materials).includes(old))old.dispose();o.castShadow=false;});
   }
-  setPlacement(type,options={}){
+  setPlacement(type: PartType | null,options: PlacementOptions={}){
     Object.assign(this.placementOptions,options);this.clearPreview(true);
     this.placing=type;this.element.style.cursor=type?'crosshair':'';
     for(const c of [...this.snapGroup.children]){this.snapGroup.remove(c);disposeGroup(c);}
@@ -219,7 +243,8 @@ export class RocketScene{
       }
     }
   }
-  updatePlacement(e){
+  updatePlacement(e: MouseEvent | DragEvent){
+    if(!this.placing)return null;
     this.clearPreview();this.rocket.updateMatrixWorld(true);
     const hit=this.hit(e,true);
     const plane=this.dragPlane||new THREE.Plane().setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new THREE.Vector3()),this.controls.target);
@@ -238,26 +263,26 @@ export class RocketScene{
       this.clearPreview(true);
       for(const p of ghosts){
         const g=makePart(p.type);g.userData.partId=p.id;
-        g.traverse(o=>{if(!o.isMesh)return;const old=o.material;o.material=old.clone();if(!Object.values(materials).includes(old))old.dispose();});
+        g.traverse(o=>{if(!(isStandardMesh(o)))return;const old=o.material;o.material=old.clone();if(!Object.values(materials).includes(old))old.dispose();});
         this.preview.add(g);
       }
     }
-    ghosts.forEach((p,i)=>{const g=this.preview.children[i];g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle+Math.PI;g.traverse(o=>{if(!o.isMesh)return;const transparent=!p.connected;if(o.material.transparent!==transparent){o.material.transparent=transparent;o.material.needsUpdate=true;}o.material.opacity=transparent?.28:1;o.material.depthWrite=!transparent;o.castShadow=!transparent;});});
+    ghosts.forEach((p,i)=>{const g=this.preview.children[i];g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle!+Math.PI;g.traverse(o=>{if(!(isStandardMesh(o)))return;const transparent=!p.connected;if(o.material.transparent!==transparent){o.material.transparent=transparent;o.material.needsUpdate=true;}o.material.opacity=transparent?.28:1;o.material.depthWrite=!transparent;o.castShadow=!transparent;});});
     this.preview.visible=true;this.placement=placement;
     for(const p of draft.parts){const g=this.groups.get(p.id);if(g&&!ids.has(p.id))g.position.set(-p.position[1],p.position[0],p.position[2]);}
-    for(const id of ids)this.groups.get(id).visible=false;
+    for(const id of ids)this.groups.get(id)!.visible=false;
     this.markers.visible=false;
     this.onPlacement(placement,draft);
     return placement;
   }
-  setMode(mode){
+  setMode(mode: Mode){
     for(const g of this.debrisGroups.values()){this.scene.remove(g);disposeGroup(g);}this.debrisGroups.clear();
     this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.flame.visible=false;
-    this.rocket.visible=true;this.scene.fog.density=.013;this.element.parentElement.style.background='';
+    this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
     this.editorGround.visible=mode==='editor';this.launchSite.visible=mode==='flight';this.ground=mode==='flight'?this.launchSite:this.editorGround;
     this.ground.position.set(0,0,0);this.followControls.maxPolarAngle=mode==='flight'?Math.PI*.49:Math.PI*.91;this.setView(false);
   }
-  setView(globe){
+  setView(globe: boolean){
     this.globe=globe&&this.mode==='flight';this.followControls.enabled=!this.globe;this.globeControls.enabled=this.globe;
     this.camera=this.globe?this.globeCamera:this.followCamera;this.controls=this.globe?this.globeControls:this.followControls;this.fit();
   }
@@ -277,7 +302,7 @@ export class RocketScene{
       this.camera.position.copy(this.controls.target).add(new THREE.Vector3(front?0:1,front?.05:.25,1.35).normalize().multiplyScalar(distance));this.controls.update();return;
     }
     const pad=this.mode==='flight'&&(!this.currentFlight||this.currentFlight.status==='pad');
-    const h=this.stats?.height||7,screen=this.element.clientHeight||650,top=this.mode==='editor'?190:80,bottom=this.mode==='editor'?60:95;
+    const h=this.stats?.height||7,screen=this.element.clientHeight||650,top=80,bottom=95;
     const area=Math.max(220,screen-top-bottom),distance=Math.max(pad?90:this.mode==='flight'?24:0,h*screen/(2*Math.tan(this.camera.fov*Math.PI/360)*area));
     const offset=(top-bottom)*h/(2*area);
     this.controls.target.set(0,h/2+offset+(pad?7:0),0);
@@ -289,8 +314,8 @@ export class RocketScene{
     this.controls.target.set(0,this.mode==='flight'?5:(this.stats?.height||7)/2,0);
     this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));this.controls.update();
   }
-  zoom(factor){this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);this.controls.update();}
-  updateFlight(f,trail){
+  zoom(factor: number){this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);this.controls.update();}
+  updateFlight(f: FlightSnapshot,trail: number[][]){
     if(this.mode!=='flight')return;
     this.currentFlight=f;this.environment.update(f,trail);
     // World ECI -> Three at the rotating launch frame; model y is body x.
@@ -306,10 +331,10 @@ export class RocketScene{
     for(const d of f.debris||[]){
       let g=this.debrisGroups.get(d.id);
       const signature=JSON.stringify(d.craft);
-      if(g&&g.userData.signature!==signature){this.scene.remove(g);disposeGroup(g);this.debrisGroups.delete(d.id);g=null;}
+      if(g&&g.userData.signature!==signature){this.scene.remove(g);disposeGroup(g);this.debrisGroups.delete(d.id);g=undefined;}
       if(!g){
         g=new THREE.Group();g.userData.signature=signature;
-        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)part.rotation.y=p.angle+Math.PI;g.add(part);}
+        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
         this.scene.add(g);this.debrisGroups.set(d.id,g);
       }
       g.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...d.quaternion)).multiply(modelToBody);
@@ -317,13 +342,18 @@ export class RocketScene{
       g.position.copy(offset).add(new THREE.Vector3(0,this.stats.height/2,0)).sub(com);g.visible=offset.length()<25000;
     }
     this.ground.position.copy(earthFixed(f.position,f.time)).negate().add(new THREE.Vector3(0,EARTH_RADIUS+this.stats.height/2,0));
-    this.ground.visible=f.altitude<50000;this.scene.fog.density=.00012*Math.exp(-f.altitude/8000);
+    this.ground.visible=f.altitude<50000;(this.scene.fog as THREE.FogExp2).density=.00012*Math.exp(-f.altitude/8000);
     this.flame.visible=f.thrust>0&&f.status==='flying';this.flame.scale.y=(.75+Math.sin(performance.now()*.05)*.1)*(f.thrust/60000);
     this.flame.scale.x=this.flame.scale.z=.9+Math.sin(performance.now()*.02)*.08;
     this.rocket.visible=f.status!=='destroyed';
   }
+  dispose(){
+    this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();
+    this.followControls.dispose();this.globeControls.dispose();disposeGroup(this.scene);this.environment.dispose();
+    this.renderer.dispose();this.renderer.domElement.remove();
+  }
   animate(){
-    if(!this.running)return;requestAnimationFrame(()=>this.animate());if(document.hidden)return;
+    if(!this.running)return;this.frame=requestAnimationFrame(()=>this.animate());if(document.hidden)return;
     this.controls.update();this.selectionBox?.update();this.renderer.clear();
     const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}

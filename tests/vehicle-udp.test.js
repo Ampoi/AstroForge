@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import dgram from 'node:dgram';
 import {once} from 'node:events';
 import {setTimeout as delay} from 'node:timers/promises';
-import {VehicleUdp} from '../server/vehicle-udp.js';
-import {Simulation} from '../server/physics.js';
-import {starterCraft} from '../shared/craft.js';
+import {VehicleUdp} from '../server/vehicle-udp.ts';
+import {Simulation} from '../server/physics.ts';
+import {starterCraft} from '../shared/craft.ts';
 
 async function bind(port=0){
   const socket=dgram.createSocket('udp4');

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {starterCraft,massProperties,layoutCraft,validateCraft,PARTS} from '../shared/craft.js';
-import {Simulation,EARTH} from '../server/physics.js';
-import {PylonProtocol} from '../server/protocol.js';
-import {add,sub,mul,norm,cross,rotate,axisAngle,matVec} from '../shared/math.js';
+import {starterCraft,massProperties,layoutCraft,validateCraft,PARTS} from '../shared/craft.ts';
+import {Simulation,EARTH} from '../server/physics.ts';
+import {PylonProtocol} from '../server/protocol.ts';
+import {add,sub,mul,norm,cross,rotate,axisAngle,matVec} from '../shared/math.ts';
 
 function twoStage(){const craft=starterCraft();craft.parts.splice(3,0,{id:'upper_engine',type:'engine'},{id:'separator',type:'decoupler'});return validateCraft(craft);}
 function setup(){

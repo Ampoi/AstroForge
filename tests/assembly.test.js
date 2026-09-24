@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {starterCraft,layoutCraft,validateCraft,craftStats,symmetryAngles,surfaceRadius} from '../shared/craft.js';
-import {resolvePlacement,placementParts} from '../shared/placement.js';
+import {starterCraft,layoutCraft,validateCraft,craftStats,symmetryAngles,surfaceRadius} from '../shared/craft.ts';
+import {resolvePlacement,placementParts} from '../shared/placement.ts';
 
 const craft=starterCraft(),tank=layoutCraft(craft).find(p=>p.id==='tank_1');
 const hit=(offset,angle)=>({id:tank.id,point:[tank.position[0]+offset*tank.def.height,Math.cos(angle)*.615,Math.sin(angle)*.615],normal:[0,Math.cos(angle),Math.sin(angle)]});

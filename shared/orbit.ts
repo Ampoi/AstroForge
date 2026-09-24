@@ -1,9 +1,9 @@
-import {add,sub,mul,dot,cross,norm,unit,clamp} from './math.js';
+import {add,sub,mul,dot,cross,norm,unit,clamp} from './math.ts';
 
 // Osculating two-body path in inertial metres. No thrust, drag, or Earth rotation
 // is integrated into this conic; the renderer rotates the whole path at display time.
 // Returns the future arc up to impact, one revolution, or a finite escape boundary.
-export function predictOrbit(position,velocity,{mu=3.986004418e14,radius=6371000,segments=384,maxRadius=radius*40}={}){
+export function predictOrbit(position: number[],velocity: number[],{mu=3.986004418e14,radius=6371000,segments=384,maxRadius=radius*40}: {mu?:number;radius?:number;segments?:number;maxRadius?:number}={}){
   if(!Array.isArray(position)||!Array.isArray(velocity)||position.length!==3||velocity.length!==3||![...position,...velocity,mu,radius,maxRadius,segments].every(Number.isFinite)||mu<=0||radius<=0||segments<2)return [];
   segments=Math.min(2048,Math.floor(segments));
   const r=norm(position);if(r<radius-.001)return [];
@@ -20,7 +20,7 @@ export function predictOrbit(position,velocity,{mu=3.986004418e14,radius=6371000
   const x=e>1e-10?unit(ev):unit(position),y=unit(cross(h,x));
   const start=Math.atan2(dot(position,y),dot(position,x)),tau=Math.PI*2;
   let end=start+tau;
-  const future=angle=>{if(e<1)while(angle<start-1e-10)angle+=tau;return angle;};
+  const future=(angle: number)=>{if(e<1)while(angle<start-1e-10)angle+=tau;return angle;};
   // The inbound root is the first physical contact; never draw through Earth.
   if(p/(1+e)<radius&&e>1e-10){
     const impact=future(-Math.acos(clamp((p/radius-1)/e,-1,1)));

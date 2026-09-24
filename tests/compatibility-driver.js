@@ -1,8 +1,8 @@
 // Line-based harness for the independent, upstream Python wire-contract check.
 import {createInterface} from 'node:readline';
-import {Simulation} from '../server/physics.js';
-import {PylonProtocol} from '../server/protocol.js';
-import {twoStageCraft} from '../shared/craft.js';
+import {Simulation} from '../server/physics.ts';
+import {PylonProtocol} from '../server/protocol.ts';
+import {twoStageCraft} from '../shared/craft.ts';
 const sim=new Simulation(twoStageCraft()),protocol=new PylonProtocol(sim,()=>0);
 protocol.available=true;
 console.log(JSON.stringify(protocol.telemetry()));

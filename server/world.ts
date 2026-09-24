@@ -1,20 +1,21 @@
-import {Simulation,STEP,EARTH} from './physics.js';
-import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp} from '../shared/math.js';
+import type {Craft} from '../shared/types.ts';
+import {Simulation,STEP,EARTH} from './physics.ts';
+import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp} from '../shared/math.ts';
 
 export const TIME_SCALES=[1,2,5,10];
-const alive=body=>body.status!=='destroyed';
-const flatten=body=>[body,...body.debris.flatMap(flatten)];
+const alive=(body: Simulation)=>body.status!=='destroyed';
+const flatten=(body: Simulation): Simulation[]=>[body,...body.debris.flatMap(flatten)];
 
 // A chain of small spheres follows each stack part. Relative swept tests prevent
 // fast vehicles passing through one another between fixed 1/120 second steps.
-function spheres(body,position=body.position,q=body.quaternion){
+function spheres(body: Simulation,position=body.position,q=body.quaternion){
   return body.props.parts.flatMap(p=>{
     const radius=p.def.radial?.22:Math.min(.625,p.def.height/2);
     const half=p.def.radial?0:Math.max(0,p.def.height/2-radius),count=Math.max(1,Math.ceil(half*2/.4));
     return Array.from({length:count+1},(_,i)=>({radius,center:add(position,rotate(q,sub(add(p.position,[-half+2*half*i/count,0,0]),body.props.com)))}));
   });
 }
-function contact(a,b,previous){
+function contact(a: Simulation,b: Simulation,previous: Map<string,{position:number[];quaternion:number[]}>){
   const pa=previous.get(a.id),pb=previous.get(b.id);
   if(!pa||!pb)return null;
   const travel=norm(sub(a.position,pa.position))+norm(sub(b.position,pb.position));
@@ -32,10 +33,11 @@ function contact(a,b,previous){
 }
 
 export class FlightWorld{
-  constructor(craft){this.time=0;this.timeScale=1;this.accumulator=0;this.slowFrames=0;this.vehicles=[];this.add(craft);}
+  time=0; timeScale=1; accumulator=0; slowFrames=0; vehicles: Simulation[]=[]; activeId!: string;
+  constructor(craft: Craft){this.time=0;this.timeScale=1;this.accumulator=0;this.slowFrames=0;this.vehicles=[];this.add(craft);}
   get bodies(){return this.vehicles.flatMap(flatten);}
-  get active(){return this.vehicles.find(v=>v.id===this.activeId);}
-  add(craft){
+  get active(){return this.vehicles.find(v=>v.id===this.activeId)!;}
+  add(craft: Craft){
     const body=new Simulation(craft);
     const rotation=axisAngle([0,0,1],EARTH.spin*this.time);
     body.position=rotate(rotation,body.position);body.quaternion=rotation;body.velocity=cross([0,0,EARTH.spin],body.position);
@@ -47,7 +49,7 @@ export class FlightWorld{
     if(retained.length>=12)throw Error('同時に配置できる機体は12機までです');
     body.createdAt=this.time;body.time=this.time;this.vehicles=[...retained,body];this.activeId=body.id;return body;
   }
-  setTimeScale(scale){if(!TIME_SCALES.includes(scale))throw Error('倍率は1・2・5・10のいずれかです');this.timeScale=scale;}
+  setTimeScale(scale: unknown){if(typeof scale!=='number'||!TIME_SCALES.includes(scale))throw Error('倍率は1・2・5・10のいずれかです');this.timeScale=scale;}
   step(dt=STEP,now=this.time){
     const before=this.bodies,previous=new Map(before.map(v=>[v.id,{position:[...v.position],quaternion:[...v.quaternion]}]));
     for(const v of this.vehicles)v.step(dt,now);
@@ -64,7 +66,7 @@ export class FlightWorld{
       }
     }
   }
-  advance(elapsed,now){
+  advance(elapsed: number,now: number){
     this.accumulator+=Math.min(elapsed,.25)*this.timeScale;
     let steps=0;
     while(this.accumulator+1e-12>=STEP&&steps<300){this.step(STEP,now);this.accumulator=Math.max(0,this.accumulator-STEP);steps++;}

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import dgram from 'node:dgram';
 import {setTimeout as delay} from 'node:timers/promises';
-import {twoStageCraft} from '../shared/craft.js';
+import {twoStageCraft} from '../shared/craft.ts';
 
 const base=process.argv[2]||'http://127.0.0.1:3002';
 async function api(path,data){

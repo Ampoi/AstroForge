@@ -1,19 +1,34 @@
+import type {Craft, FlightStatus, Actuation, EngineCommand, RcsCommand, FlightCommand, WrenchCommand} from '../shared/types.ts';
+import type {PhysicsKernel, FlightSnapshot} from './types.ts';
 import {randomUUID} from 'node:crypto';
-import {add,sub,mul,dot,cross,norm,unit,clamp,qnorm,qconj,qmul,rotate,axisAngle,matVec} from '../shared/math.js';
-import {PARTS,G0,craftStats,massProperties,stages,splitCraft} from '../shared/craft.js';
+import {add,sub,mul,dot,cross,norm,unit,clamp,qnorm,qconj,qmul,rotate,axisAngle,matVec} from '../shared/math.ts';
+import {PARTS,G0,craftStats,massProperties,stages,splitCraft} from '../shared/craft.ts';
 
-import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.js';
-import {physicsKernel} from './physics-kernel.js';
-export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.js';
+import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
+import {physicsKernel} from './physics-kernel.ts';
+export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.ts';
 
 export class Simulation{
-  constructor(craft,{kernel=physicsKernel}={}){this.kernel=kernel;this.reset(craft);}
+  kernel: PhysicsKernel;
+  id!: string; craft!: Craft; stats!: ReturnType<typeof craftStats>; props!: ReturnType<typeof massProperties>;
+  createdAt=0; destroyedAt: number | null=null; impact: FlightSnapshot['impact']=null;
+  tankFuel: Record<string,number>={}; mono=0; charge=0; time=0; status: FlightStatus='pad';
+  maxAltitude=0; maxQ=0; trail: number[][]=[]; events: {time:number;text:string}[]=[];
+  debris: Simulation[]=[]; separations: {id:string;time:number}[]=[]; passive=false; fragment=false;
+  expiresAt=0; collisionGraceUntil=0; padHeight=0;
+  position: number[]=[]; velocity: number[]=[]; quaternion: number[]=[]; omega: number[]=[];
+  acceleration: number[]=[]; angularAcceleration: number[]=[];
+  last={thrust:0,drag:0,q:0,mach:0,aoa:0}; lastActuation: Actuation | null=null;
+  engines: Record<string,EngineCommand>={}; rcs: Record<string,RcsCommand>={};
+  flight: FlightCommand | null=null; wrench: WrenchCommand | null=null;
+
+  constructor(craft: Craft,{kernel=physicsKernel}={}){this.kernel=kernel;this.reset(craft);}
   get fuel(){return Object.values(this.tankFuel).reduce((s,v)=>s+v,0);}
   set fuel(value){
     const tanks=this.craft.parts.filter(p=>p.type==='tank'),capacity=tanks.length*PARTS.tank.fuel;
     this.tankFuel=Object.fromEntries(tanks.map(p=>[p.id,capacity?clamp(value,0,capacity)/tanks.length:0]));
   }
-  reset(craft){
+  reset(craft: Craft){
     this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
     this.time=0;this.status='pad';this.maxAltitude=0;this.maxQ=0;this.trail=[];this.events=[];this.debris=[];this.separations=[];this.passive=false;
     this.props=massProperties(craft);this.padHeight=this.props.com[0];
@@ -23,14 +38,14 @@ export class Simulation{
     this.clearCommands();this.event('発射台に配置。UDPコマンドを待っています。');
   }
   clearCommands(){this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
-  event(text){this.events.unshift({time:this.time,text});this.events=this.events.slice(0,30);}
-  separationIssue(id){
+  event(text: string){this.events.unshift({time:this.time,text});this.events=this.events.slice(0,30);}
+  separationIssue(id: string){
     if(this.status!=='flying')return 'separation_requires_flight';
     if(this.charge<=0)return 'no_power';
     try{splitCraft(this.craft,id);}catch{return 'separation_unavailable';}
     return null;
   }
-  separate(id){
+  separate(id: string){
     const issue=this.separationIssue(id);if(issue)throw Error(issue);
     const {retained,detached}=splitCraft(this.craft,id),oldStats=this.stats;
     const fuel={...this.tankFuel},monoFraction=oldStats.mono?this.mono/oldStats.mono:0,chargeFraction=oldStats.power?this.charge/oldStats.power:0;
@@ -38,7 +53,7 @@ export class Simulation{
     const q=[...this.quaternion],omega=[...this.omega],height=craftStats(detached).height;
     const debris=new Simulation(detached,{kernel:this.kernel});debris.id=`${this.id}/${id}`;debris.createdAt=this.time;debris.time=this.time;debris.status='flying';debris.passive=true;debris.padHeight=this.padHeight;
     this.craft=retained;
-    for(const [body,shift] of [[this,[height,0,0]],[debris,[0,0,0]]]){
+    for(const [body,shift] of ([[this,[height,0,0]],[debris,[0,0,0]]] as [Simulation,number[]][])){
       body.stats=craftStats(body.craft);body.tankFuel=Object.fromEntries(body.craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,fuel[p.id]]));
       body.mono=body.stats.mono*monoFraction;body.charge=body.stats.power*chargeFraction;
       body.props=massProperties(body.craft,body.tankFuel,monoFraction);
@@ -49,14 +64,14 @@ export class Simulation{
     }
     // Equal/opposite axial impulse at the ring's center, including off-axis torque.
     const ringPoint=[height-PARTS.decoupler.height/2,0,0];
-    for(const [body,shift,sign] of [[this,[height,0,0],1],[debris,[0,0,0],-1]]){
+    for(const [body,shift,sign] of ([[this,[height,0,0],1],[debris,[0,0,0],-1]] as [Simulation,number[],number][])){
       const impulse=[sign*PARTS.decoupler.impulse,0,0];
       body.velocity=add(body.velocity,mul(rotate(q,impulse),1/body.props.mass));
       body.omega=add(body.omega,matVec(body.props.inverseInertia,cross(sub(ringPoint,add(body.props.com,shift)),impulse)));
     }
     this.collisionGraceUntil=this.time+.5;debris.collisionGraceUntil=this.time+.5;this.debris.push(debris);this.separations.push({id,time:this.time});this.event(`分離完了 — ${id} / ${detached.parts.length}パーツを切り離しました`);
   }
-  impactDamage(speed,kind='ground'){
+  impactDamage(speed: number,kind='ground'){
     if(this.status==='destroyed')return;
     this.impact={time:this.time,speed,kind,position:[...this.position]};
     this.status='destroyed';this.destroyedAt=this.time;this.clearCommands();
@@ -74,7 +89,7 @@ export class Simulation{
       piece.tankFuel=Object.fromEntries(craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,this.tankFuel[p.id]||0]));
       piece.mono=piece.stats.mono*monoFraction;piece.charge=piece.stats.power*chargeFraction;
       piece.props=massProperties(craft,piece.tankFuel,monoFraction);piece.padHeight=0;
-      const localCore=piece.props.parts.find(p=>p.id===core.id);
+      const localCore=piece.props.parts.find(p=>p.id===core.id)!;
       const offset=sub(add(sub(core.position,localCore.position),piece.props.com),old.com);
       piece.position=add(this.position,rotate(this.quaternion,offset));piece.quaternion=[...this.quaternion];
       piece.velocity=add(this.velocity,rotate(this.quaternion,cross(this.omega,offset)));
@@ -94,15 +109,15 @@ export class Simulation{
     });
     this.debris.push(...pieces);
   }
-  actuation(now,dt){
+  actuation(now: number,dt: number){
     const atmospheric=atmosphere(norm(this.position)-EARTH.radius),fraction=clamp(atmospheric.pressure/101325,0,1);
     const isp=PARTS.engine.ispVac-(PARTS.engine.ispVac-PARTS.engine.isp)*fraction;
     const maxThrust=PARTS.engine.thrust*isp/PARTS.engine.isp;
     const powered=!this.passive&&this.charge>0&&!['crashed','landed','destroyed'].includes(this.status);
-    const activeStage=stages(this.craft).at(-1),activeIds=new Set(activeStage.map(p=>p.id));
+    const activeStage=stages(this.craft).at(-1)!,activeIds=new Set(activeStage.map(p=>p.id));
     const stageFuel=activeStage.reduce((s,p)=>s+(this.tankFuel[p.id]||0),0);
-    const flight=powered&&this.flight?.expires>now?this.flight:{pitch:0,yaw:0,roll:0};
-    const wrench=powered&&this.wrench?.expires>now?this.wrench:null;
+    const flight=powered&&this.flight && this.flight.expires>now?this.flight:{pitch:0,yaw:0,roll:0};
+    const wrench=powered&&this.wrench && this.wrench.expires>now?this.wrench:null;
     let force=[0,0,0],torque=[0,0,0],thrust=0;
     const engineResults=[];
     for(const p of this.props.parts.filter(p=>p.type==='engine')){
@@ -129,7 +144,7 @@ export class Simulation{
     force=add(force,rf);torque=add(torque,rt);
     const sun=unit([.3,-.8,.5]);const behind=dot(this.position,sun)<0&&norm(cross(this.position,sun))<EARTH.radius;
     let watts=0;
-    if(!behind)for(const p of this.props.parts.filter(p=>p.type==='solar'))watts+=PARTS.solar.watts*Math.abs(dot(rotate(this.quaternion,[0,-Math.sin(p.angle),Math.cos(p.angle)]),sun));
+    if(!behind)for(const p of this.props.parts.filter(p=>p.type==='solar'))watts+=PARTS.solar.watts*Math.abs(dot(rotate(this.quaternion,[0,-Math.sin(p.angle!),Math.cos(p.angle!)]),sun));
     this.charge=clamp(this.charge+(watts-15-norm(wheel)*.12)*dt/3600,0,this.stats.power);
     const consumed=thrust/(isp*G0)*dt;
     for(const p of activeStage)if(p.type==='tank')this.tankFuel[p.id]=Math.max(0,this.tankFuel[p.id]-consumed*this.tankFuel[p.id]/(stageFuel||1));
@@ -140,7 +155,7 @@ export class Simulation{
     });
     return {force,torque,thrust,engineResults,rcsResults,rcsUsed,watts};
   }
-  aerodynamic(position,velocity,q,omega){
+  aerodynamic(position: number[],velocity: number[],q: number[],omega: number[]){
     return this.kernel.aerodynamic(this,position,velocity,q,omega);
   }
   step(dt=STEP,now=this.time){
@@ -186,7 +201,7 @@ export class Simulation{
     this.maxAltitude=Math.max(this.maxAltitude,altitude);this.maxQ=Math.max(this.maxQ,aero.q);
     if(this.status==='flying'&&Math.floor(this.time*2)!==Math.floor((this.time-dt)*2)){this.trail.push([...this.position]);if(this.trail.length>2400)this.trail.shift();}
   }
-  snapshot(){
+  snapshot(): FlightSnapshot{
     const r=norm(this.position),up=unit(this.position),east=unit(cross([0,0,1],up)),north=cross(up,east);
     const sv=sub(this.velocity,cross([0,0,EARTH.spin],this.position)),verticalSpeed=dot(sv,up);
     const orbit=orbitalElements(this.position,this.velocity),inverse=qconj(this.quaternion);

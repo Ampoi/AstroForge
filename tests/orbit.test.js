@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {predictOrbit} from '../shared/orbit.js';
-import {EARTH,orbitalElements,gravity,rk4} from '../server/physics.js';
-import {norm,sub,dot,cross} from '../shared/math.js';
+import {predictOrbit} from '../shared/orbit.ts';
+import {EARTH,orbitalElements,gravity,rk4} from '../server/physics.ts';
+import {norm,sub,dot,cross} from '../shared/math.ts';
 const {radius:R,mu}=EARTH;
 
 test('circular map prediction starts at the craft and closes one inclined revolution',()=>{

@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import {createWasmKernel} from '../server/physics-kernel.js';
-import {javascriptKernel,atmosphere,orbitalElements,EARTH} from '../server/physics-reference.js';
-import {Simulation,STEP} from '../server/physics.js';
-import {starterCraft,twoStageCraft,massProperties} from '../shared/craft.js';
-import {axisAngle,norm} from '../shared/math.js';
+import {createWasmKernel} from '../server/physics-kernel.ts';
+import {javascriptKernel,atmosphere,orbitalElements,EARTH} from '../server/physics-reference.ts';
+import {Simulation,STEP} from '../server/physics.ts';
+import {starterCraft,twoStageCraft,massProperties} from '../shared/craft.ts';
+import {axisAngle,norm} from '../shared/math.ts';
 
 const wasm=createWasmKernel();
 function near(actual,expected,absolute=1e-8,relative=1e-10){
@@ -97,9 +97,9 @@ test('Wasm rejects oversized and invalid inputs; Simulation stops without commit
 
 test('backend selection is explicit and defaults to Zig',()=>{
   for(const [selected,expected] of [['','zig-wasm'],['js','js'],['zig','zig-wasm']]){
-    const child=spawnSync(process.execPath,['--input-type=module','-e',"import {physicsKernel} from './server/physics-kernel.js'; console.log(physicsKernel.name)"],{encoding:'utf8',env:{...process.env,ASTROFORGE_PHYSICS:selected}});
+    const child=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',"import {physicsKernel} from './server/physics-kernel.ts'; console.log(physicsKernel.name)"],{encoding:'utf8',env:{...process.env,ASTROFORGE_PHYSICS:selected}});
     assert.equal(child.status,0,child.stderr);assert.equal(child.stdout.trim(),expected);
   }
-  const invalid=spawnSync(process.execPath,['--input-type=module','-e',"import './server/physics-kernel.js'"],{encoding:'utf8',env:{...process.env,ASTROFORGE_PHYSICS:'typo'}});
+  const invalid=spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',"import './server/physics-kernel.ts'"],{encoding:'utf8',env:{...process.env,ASTROFORGE_PHYSICS:'typo'}});
   assert.notEqual(invalid.status,0);assert.match(invalid.stderr,/must be zig or js/);
 });

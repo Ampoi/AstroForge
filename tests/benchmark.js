@@ -1,10 +1,10 @@
 // Informational benchmark, not a hardware-dependent pass/fail gate.
 import {performance} from 'node:perf_hooks';
 import {stat,readdir} from 'node:fs/promises';
-import {Simulation,STEP} from '../server/physics.js';
-import {physicsKernel} from '../server/physics-kernel.js';
-import {PylonProtocol} from '../server/protocol.js';
-import {starterCraft} from '../shared/craft.js';
+import {Simulation,STEP} from '../server/physics.ts';
+import {physicsKernel} from '../server/physics-kernel.ts';
+import {PylonProtocol} from '../server/protocol.ts';
+import {starterCraft} from '../shared/craft.ts';
 
 const results=[];
 for(const count of [13,80]){
@@ -25,8 +25,7 @@ for(const count of [13,80]){
     realtimeCorePercent:+(elapsed/100).toFixed(2),udpKiBPerSecond:+(wireBytes/10/1024).toFixed(1)});
 }
 async function bytes(dir){let total=0;for(const e of await readdir(dir,{withFileTypes:true})){const p=`${dir}/${e.name}`;total+=e.isDirectory()?await bytes(p):(await stat(p)).size;}return total;}
-let assets=await bytes('public')+await bytes('shared');
-for(const path of ['node_modules/three/build/three.module.js','node_modules/three/build/three.core.js','node_modules/three/examples/jsm/controls/OrbitControls.js'])assets+=(await stat(path)).size;
+let assets;try{assets=await bytes('dist');}catch{assets=await bytes('public')+await bytes('src')+await bytes('shared');}
 console.log(JSON.stringify({node:process.version,platform:process.platform,backend:physicsKernel.name,results,
   browserAssetsMiB:+(assets/1024/1024).toFixed(2),benchmarkProcessRssMiB:+(process.memoryUsage().rss/1024/1024).toFixed(1),
   note:'CPU simulation + 20 Hz telemetry serialization. Excludes WebGL rendering and network I/O; browserAssetsMiB is the uncompressed local payload.'},null,2));

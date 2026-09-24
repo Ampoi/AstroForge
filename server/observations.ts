@@ -1,16 +1,18 @@
-import {EARTH,gravity} from './physics.js';
-import {sub,cross,rotate,qconj} from '../shared/math.js';
+import type {Simulation} from './physics.ts';
+import type {Packet} from './types.ts';
+import {EARTH,gravity} from './physics.ts';
+import {sub,cross,rotate,qconj} from '../shared/math.ts';
 
 // PyLoN's default IMU is specific force in body axes, not coordinate acceleration.
 // Its gyroscope includes Earth rotation; the ground-truth stream removes it.
-export function imuSample(sim){
+export function imuSample(sim: Simulation){
   const grounded=['pad','landed','crashed'].includes(sim.status);
   const spin=[0,0,EARTH.spin];
   const acceleration=grounded?cross(spin,cross(spin,sim.position)):sim.acceleration;
   return {angularVelocity:[...sim.omega],linearAcceleration:rotate(qconj(sim.quaternion),sub(acceleration,gravity(sim.position)))};
 }
 
-export function appendObservations(packets,sim,packet){
+export function appendObservations(packets: Packet[],sim: Simulation,packet: (type:string,fields:Record<string,unknown>)=>Packet){
   packets.push(packet('pylon_imu',imuSample(sim)));
   packets.push(packet('pylon_vehicle_health',{electricCharge:sim.charge,electricCapacity:sim.stats.power}));
   const snapshot=packet('pylon_control_snapshot',{

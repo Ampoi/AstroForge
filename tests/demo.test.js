@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {guidance,DemoController} from '../examples/demo-controller.js';
-import {Simulation,STEP} from '../server/physics.js';
-import {PylonProtocol} from '../server/protocol.js';
-import {starterCraft,twoStageCraft} from '../shared/craft.js';
+import {guidance,DemoController} from '../examples/demo-controller.ts';
+import {Simulation,STEP} from '../server/physics.ts';
+import {PylonProtocol} from '../server/protocol.ts';
+import {starterCraft,twoStageCraft} from '../shared/craft.ts';
 
 test('standalone demo waits without an app lifecycle and ignores malformed datagrams',()=>{
   const demo=new DemoController();

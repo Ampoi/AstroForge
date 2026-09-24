@@ -8,9 +8,9 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const version=readFileSync(join(root,'.zig-version'),'utf8').trim();
 const output=join(root,'build','physics.wasm'),stamp=output+'.sha256';
 const digest=createHash('sha256');
-for(const file of ['native/physics.zig','scripts/build-physics.js','.zig-version'])digest.update(readFileSync(join(root,file)));
+for(const file of ['native/physics.zig','scripts/build-physics.ts','.zig-version'])digest.update(readFileSync(join(root,file)));
 const sourceHash=digest.digest('hex');
-const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const hash=(bytes: Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 let current=false;
 try{current=readFileSync(stamp,'utf8')===`${sourceHash}\n${hash(readFileSync(output))}\n`;}catch{}
 if(current&&!process.argv.includes('--force')){

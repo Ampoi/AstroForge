@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FlightWorld} from '../server/world.js';
-import {Simulation,EARTH,STEP} from '../server/physics.js';
-import {starterCraft,twoStageCraft} from '../shared/craft.js';
-import {add,sub,mul,norm,cross} from '../shared/math.js';
+import {FlightWorld} from '../server/world.ts';
+import {Simulation,EARTH,STEP} from '../server/physics.ts';
+import {starterCraft,twoStageCraft} from '../shared/craft.ts';
+import {add,sub,mul,norm,cross} from '../shared/math.ts';
 
 function flying(craft=starterCraft(),height=1000){const s=new Simulation(craft);s.status='flying';s.position=[EARTH.radius+height,0,0];s.velocity=cross([0,0,EARTH.spin],s.position);return s;}
 test('time warp advances exact fixed steps and keeps wall-clock command expiry',()=>{

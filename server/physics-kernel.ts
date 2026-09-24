@@ -1,17 +1,20 @@
+import type {PhysicsBody, PhysicsKernel} from './types.ts';
+import type {ForceTorque} from '../shared/types.ts';
+interface WasmApi { memory: WebAssembly.Memory; abi_version():number; input_len():number; output_len():number; input_ptr():number; output_ptr():number; integrate(count:number):number; evaluate_aero(count:number):number; evaluate_atmosphere(alt:number):number }
 import {readFileSync} from 'node:fs';
-import {javascriptKernel} from './physics-reference.js';
+import {javascriptKernel} from './physics-reference.ts';
 
 const HEADER=43,FIN_STRIDE=7,MAX_FINS=80;
 
-export function createWasmKernel(bytes=readWasm()){
+export function createWasmKernel(bytes: BufferSource=readWasm()): PhysicsKernel & {atmosphere(alt:number): {density:number; pressure:number; temperature:number; sound:number}}{
   const module=new WebAssembly.Module(bytes);
-  const api=new WebAssembly.Instance(module,{}).exports;
+  const api=new WebAssembly.Instance(module,{}).exports as unknown as WasmApi;
   if(api.abi_version?.()!==1||api.input_len?.()!==HEADER+MAX_FINS*FIN_STRIDE||api.output_len?.()!==13){
     throw Error('Physics Wasm ABI mismatch; run npm run build:physics');
   }
   const input=new Float64Array(api.memory.buffer,api.input_ptr(),api.input_len());
   const output=new Float64Array(api.memory.buffer,api.output_ptr(),api.output_len());
-  function pack(sim,state,a,dt){
+  function pack(sim: PhysicsBody,state: number[],a: ForceTorque | null,dt: number){
     input.set(state,0);
     input[13]=sim.props.mass;input.set(sim.props.com,14);
     input.set(sim.props.inertia,17);input.set(sim.props.inverseInertia,26);
@@ -22,7 +25,7 @@ export function createWasmKernel(bytes=readWasm()){
       if(count===MAX_FINS)throw RangeError(`Physics supports at most ${MAX_FINS} fins`);
       const offset=HEADER+count++*FIN_STRIDE;
       input.set(part.position,offset);input[offset+3]=0;
-      input[offset+4]=-Math.sin(part.angle);input[offset+5]=Math.cos(part.angle);input[offset+6]=part.def.area;
+      input[offset+4]=-Math.sin(part.angle!);input[offset+5]=Math.cos(part.angle!);input[offset+6]=part.def.area!;
     }
     return count;
   }

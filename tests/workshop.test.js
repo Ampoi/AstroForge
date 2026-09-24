@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {starterCraft,craftStats,validateCraft,PARTS} from '../shared/craft.js';
-import {emptyAssembly,toAssembly,restoreAssembly,assembledCraft,assemblyStats,assemblyLayout,connectedIds,movingIds,placeAssembly,resolveAssemblyPlacement,removeAssembly} from '../shared/assembly.js';
+import {starterCraft,craftStats,validateCraft,PARTS} from '../shared/craft.ts';
+import {emptyAssembly,toAssembly,restoreAssembly,assembledCraft,assemblyStats,assemblyLayout,connectedIds,movingIds,placeAssembly,resolveAssemblyPlacement,removeAssembly} from '../shared/assembly.ts';
 
 const point=(craft,id)=>craft.parts.find(p=>p.id===id).position;
 const shift=(v,d)=>v.map((n,i)=>n+d[i]);
