@@ -32,7 +32,7 @@ UDP ONの機体ごとに実時間20 Hz（約50 msごと）で以下を配信し�
 
 | `type` | 内容・使い道 |
 | --- | --- |
-| `pylon_session` | 接続先の識別、制御可能か、時間倍率 |
+| `pylon_session` | 観測セッションの識別・有効性、時間倍率 |
 | `pylon_control_authority_state` | 誰が操縦中か、lease残り時間、指令の拒否理由。指令への応答としても届く |
 | `pylon_flight_state` | 高度・速度・資源・軌道・姿勢入力の適用状態 |
 | `pylon_ground_truth` | 地球固定座標での位置・姿勢・速度・加速度 |
@@ -43,7 +43,7 @@ UDP ONの機体ごとに実時間20 Hz（約50 msごと）で以下を配信し�
 | `pylon_control_snapshot` | 同じ時刻のflight・engine・separationを一括取得 |
 | `pylon_wrench_status` | wrenchが保持されている間に配信する、要求と実現値の差 |
 
-配信処理はsessionから送信を始めますが、受信側では順序を前提にせず`type`で振り分けてください。VAB表示中も配信は継続します。着地・墜落・破損後はsessionの`available:false`になり、UDP ONの間は結果を配信し続けます。UDP OFF・全リセットではheartbeatを含む送信自体が止まります。
+配信処理はsessionから送信を始めますが、受信側では順序を前提にせず`type`で振り分けてください。VAB表示中も配信は継続します。機体が残る着地・墜落後はsessionの`available:true`を維持し、UDP ONの間は結果を配信し続けます。leaseは解除され、操縦指令は`control_unavailable`で拒否されます。機体が消失した場合は`available:false`になり、bridgeは以降の観測を採用しません。UDP OFF・全リセットではheartbeatを含む送信自体が止まります。
 
 ## 共通フィールドとセッション
 
@@ -78,9 +78,11 @@ UDP ONの機体ごとに実時間20 Hz（約50 msごと）で以下を配信し�
 }
 ```
 
-`available:true`は制御を受け付けられる状態であり、leaseを所有している意味ではありません。`realtimeSinceStartup`はそのUDPプロトコルインスタンスの開始からの実時間秒です。`warpRate`は1/2/5/10、`physicsWarp`は倍率が1を超えるとtrue。通常の配信では`paused:false`、`packed:false`です。
+`available:true`は同じセッションで観測を採用できることを示します。操縦できることやleaseを所有していることは保証しません。操縦開始前にacquireの応答と自分のcontroller/leaseを照合してください。着地時はlease喪失と最終snapshotの到着順が入れ替わるため、指令送信を止めても観測購読は継続します。`realtimeSinceStartup`はそのUDPプロトコルインスタンスの開始からの実時間秒です。`warpRate`は1/2/5/10、`physicsWarp`は倍率が1を超えるとtrue。通常の配信では`paused:false`、`packed:false`です。
 
 制御に使うパケットは現在のセッション情報と一致するものだけを採用します。sessionの情報が変わったら過去の観測を捨て、接続をやり直してください。観測を比較する際はセッションと観測番号を組み合わせ、欠落したデータを待ち続けないよう受信時刻も記録します。
+
+発射台上でも`landed:true`です。これだけで飛行終了と判断せず、飛行中の`landed:false`からの遷移や、authorityの`reason`（`vessel_landed` / `vessel_crashed`）を確認します。bridgeの`VesselLifecycle.STATE_ACTIVE`も観測セッションの有効性であり、操縦許可ではありません。
 
 ## 制御権と指令の応答
 
@@ -126,7 +128,7 @@ UDP ONの機体ごとに実時間20 Hz（約50 msごと）で以下を配信し�
 | `appliedPitch`, `appliedYaw`, `appliedRoll` | 適用している正規化入力。無効時は0 |
 | `inputAtLimit` | 有効入力の絶対値がいずれか0.999以上か |
 
-ブラウザの高度は初期重心高度を差し引くため、UDPの高度とは数m異なります。姿勢角そのものが必要な場合はground truthのquaternionを使います。燃料と電力の単位、座標の定義は[座標と単位](../protocol#座標と単位)も参照してください。
+ブラウザの高度は初期重心高度を差し引くため、UDPの高度とは数m異なります。姿勢角そのものが必要な場合はground truthのquaternionを使います。燃料と電力の単位、座標の定義は[座標・高度の図と数値例](./coordinates)も参照してください。
 
 ## 位置・姿勢とIMU
 

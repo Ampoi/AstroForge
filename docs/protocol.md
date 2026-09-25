@@ -29,7 +29,7 @@
 ## 接続から点火まで
 
 1. 対象機体のテレメトリ用ポートをbindします。同じポートを使うデモは先に終了します。
-2. `pylon_session`を待ち、`available:true`を確認します。
+2. `pylon_session`を待ち、`available:true`で観測セッションが有効なことを確認します。これは操縦許可ではありません。
 3. 下表のセッション情報5項目をコピーします。`controllerId`と`leaseId`はクライアントで決めます。
 4. `pylon_control_authority_command`の`action:"acquire"`を送ります。
 5. 受信する`pylon_control_authority_state`が`state:1`で、自分の`controllerId`と`leaseId`になったことを確認します。
@@ -90,7 +90,20 @@ sequenceは制御権・姿勢・wrench・各アクチュエータ・batchの系�
 
 セッション情報が変わったら、古い情報での送信を止め、受信状態と連番を作り直して接続してください。他機体のON/OFFは既存の機体のセッションに影響しません。分離物や破片は追尾のみ可能です。
 
+## 観測と操縦を分ける
+
+| 判断したいこと | 確認するもの |
+| --- | --- |
+| 同じ機体の結果を観測できるか | 新鮮な`pylon_session.available:true`と一致するセッション情報 |
+| 自分が操縦権を持つか | acquire応答の`state:1`、自分の`controllerId` / `leaseId`、lease期限 |
+| 指令が受理されたか | authority応答の`reason`と、その後の適用状態 |
+| 飛行が終わったか | flightの着地遷移やauthorityの`vessel_landed` / `vessel_crashed` |
+
+着地・墜落では観測を継続し、操縦だけを停止します。lease喪失を理由に購読を終了すると、その後に届く最終結果を取りこぼします。UDPの到着順は保証されないため、authorityとsnapshotのどちらが先でも処理できるようにしてください。詳細は[テレメトリ](./udp/telemetry)を参照してください。
+
 ## 座標と単位
+
+軸の図、UDPとROS2のフィールド対応、発射台での実測値、300m上昇の計算例は[座標・高度の読み方](./udp/coordinates)にまとめています。
 
 | 表現 | 意味 |
 | --- | --- |
