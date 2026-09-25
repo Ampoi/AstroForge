@@ -37,6 +37,7 @@ import type {
   PartType,
 } from "../shared/types.ts";
 import type { AppState, ApiRoutes, UdpState } from "../shared/api.ts";
+import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
@@ -644,12 +645,16 @@ export function useWorkshop() {
       sceneError.value = true;
       console.error(error);
     }
-    stream = new EventSource("/api/events");
+    const decoder = new StateStreamDecoder();
+    stream = new EventSource("/api/events?compact=1");
+    stream.addEventListener('configuration', event => {
+      decoder.configuration = JSON.parse((event as MessageEvent).data);
+    });
     stream.onopen = () => (connected.value = true);
     stream.onerror = () => (connected.value = false);
     stream.onmessage = (event) => {
       try {
-        applyState(JSON.parse(event.data) as AppState);
+        applyState(decoder.decode(JSON.parse(event.data) as StreamFrame));
       } catch (error) {
         console.error(error);
       }

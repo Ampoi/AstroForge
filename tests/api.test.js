@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import net from 'node:net';
 import dgram from 'node:dgram';
+import {StateStreamDecoder} from '../shared/state-stream.ts';
 import {starterCraft,twoStageCraft} from '../shared/craft.ts';
 
 async function freePort(){const s=net.createServer();s.listen(0,'127.0.0.1');await once(s,'listening');const p=s.address().port;await new Promise(r=>s.close(r));return p;}
@@ -34,6 +35,8 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   const html=await homepage.text();assert.match(html,/<div id="app"><\/div>/);assert.doesNotMatch(html,/importmap|\/src\//);
   const bundle=html.match(/src="([^"]+\.js)"/);assert.ok(bundle);
   const asset=await fetch(`http://127.0.0.1:${port}${bundle[1]}`);assert.equal(asset.status,200);assert.match(asset.headers.get('content-type'),/javascript/);
+  const bundleText=await asset.text(),wasmPath=bundleText.match(/assets\/exhaust-[a-zA-Z0-9_-]+\.wasm/);assert.ok(wasmPath);
+  const wasmAsset=await fetch(`http://127.0.0.1:${port}/${wasmPath[0]}`);assert.equal(wasmAsset.status,200);assert.match(wasmAsset.headers.get('content-type'),/application\/wasm/);assert.ok(WebAssembly.validate(await wasmAsset.arrayBuffer()));
   const head=await fetch(`http://127.0.0.1:${port}${bundle[1]}`,{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
   for(const path of ['/shared/craft.ts','/server/index.ts','/vendor/three.module.js','/src/App.vue'])assert.equal((await fetch(`http://127.0.0.1:${port}${path}`)).status,404);
   assert.equal((await fetch(`http://127.0.0.1:${port}/assets/land.json`)).status,200);
@@ -80,6 +83,19 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   assert.ok(packets.some(p=>p.reason==='runtime_session_mismatch'));
   const response=await fetch(`http://127.0.0.1:${port}/api/events`);assert.match(response.headers.get('content-type'),/text\/event-stream/);
   const reader=response.body.getReader(),first=await reader.read();assert.match(new TextDecoder().decode(first.value),/data:.*"vehicles"/);await reader.cancel();
+  const decoder=new StateStreamDecoder();
+  const compact=await fetch(`http://127.0.0.1:${port}/api/events?compact=1`),compactReader=compact.body.getReader();
+  const textDecoder=new TextDecoder();let buffered='',frames=0,configurations=0;
+  while(frames<2){
+    const chunk=await compactReader.read();assert.equal(chunk.done,false);buffered+=textDecoder.decode(chunk.value,{stream:true});
+    while(buffered.includes('\n\n')){
+      const end=buffered.indexOf('\n\n'),event=buffered.slice(0,end);buffered=buffered.slice(end+2);
+      const payload=JSON.parse(event.split('data: ')[1]);
+      if(event.startsWith('event: configuration')){decoder.configuration=payload;configurations++;}
+      else{const decoded=decoder.decode(payload);assert.equal(decoded.flight.id,decoded.activeVehicleId);assert.ok(decoded.flight.craft.parts.length);frames++;}
+    }
+  }
+  assert.equal(configurations,1);await compactReader.cancel();
   // Replacing the pad craft closes its UDP endpoint without touching the flight.
   s=await post('launch',starterCraft());assert.ok(!s.vehicles.some(v=>v.id===secondId));
   assert.equal(s.vehicles.find(v=>v.id===firstId).udp.enabled,true);

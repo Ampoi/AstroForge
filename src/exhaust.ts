@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {WasmExhaustFlow, loadExhaustKernel} from './exhaust-kernel.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** Same six-degree, normalized thrust vector as Simulation.actuation, in model axes. */
@@ -112,7 +113,11 @@ export class ExhaustFlow {
 }
 
 export class ExhaustEffect {
-  readonly flow = new ExhaustFlow();
+  flow: ExhaustFlow | WasmExhaustFlow = new ExhaustFlow();
+  private disposed = false;
+  private view = new THREE.Matrix4();
+  private order = new Uint32Array(2400);
+  private depths = new Float64Array(2400);
   private geometry = new THREE.InstancedBufferGeometry();
   private offsets = new Float32Array(this.flow.capacity * 3);
   private values = new Float32Array(this.flow.capacity * 3);
@@ -142,6 +147,9 @@ export class ExhaustEffect {
   });
   readonly mesh: THREE.Mesh;
   constructor() {
+    if (typeof window !== 'undefined') void loadExhaustKernel().then(module => {
+      if (!this.disposed) this.flow = new WasmExhaustFlow(module);
+    }).catch(error => console.warn('Exhaust uses the JS fallback:', error));
     const quad = new THREE.PlaneGeometry(1, 1);
     this.geometry.index = quad.index;
     this.geometry.setAttribute('position', quad.getAttribute('position'));
@@ -156,16 +164,32 @@ export class ExhaustEffect {
   update(dt: number, frame: ExhaustFrame, camera: THREE.Camera) {
     this.flow.step(dt, frame);
     this.mesh.updateMatrixWorld(); camera.updateMatrixWorld();
-    const view = new THREE.Matrix4().multiplyMatrices(camera.matrixWorldInverse, this.mesh.matrixWorld);
-    const depth = (p: Parcel) => view.elements[2]*p.position.x + view.elements[6]*p.position.y + view.elements[10]*p.position.z;
-    // Alpha smoke is drawn back-to-front; simulation order does not affect trajectories.
-    this.flow.particles.sort((a, b) => depth(a) - depth(b));
-    this.flow.particles.forEach((p, i) => {
-      p.position.toArray(this.offsets, i * 3);
-      this.values.set([2 * (p.size + p.age * (1.0 + .8 * frame.density)), p.age, Math.min(1, (p.life - p.age) * 3)], i * 3);
-    });
-    this.geometry.instanceCount = this.flow.particles.length;
-    this.geometry.getAttribute('offset').needsUpdate = this.geometry.getAttribute('parcel').needsUpdate = true;
+    const view = this.view.multiplyMatrices(camera.matrixWorldInverse, this.mesh.matrixWorld).elements;
+    const data = this.flow instanceof WasmExhaustFlow ? this.flow.data : null;
+    const particles = this.flow instanceof ExhaustFlow ? this.flow.particles : null;
+    const count = data ? (this.flow as WasmExhaustFlow).count : particles!.length;
+    for (let i = 0; i < count; i++) {
+      const k = i * 10, p = particles?.[i];
+      this.order[i] = i;
+      this.depths[i] = view[2]*(data ? data[k] : p!.position.x) + view[6]*(data ? data[k+1] : p!.position.y) + view[10]*(data ? data[k+2] : p!.position.z);
+    }
+    // Cache each depth once and sort indices, keeping simulation order stable.
+    const order = this.order.subarray(0, count);
+    order.sort((a, b) => this.depths[a] - this.depths[b] || a - b);
+    for (let i = 0; i < count; i++) {
+      const index = order[i], k = index * 10, j = i * 3, p = particles?.[index];
+      this.offsets[j] = data ? data[k] : p!.position.x;
+      this.offsets[j+1] = data ? data[k+1] : p!.position.y;
+      this.offsets[j+2] = data ? data[k+2] : p!.position.z;
+      const age = data ? data[k+6] : p!.age, life = data ? data[k+7] : p!.life, size = data ? data[k+8] : p!.size;
+      this.values[j] = 2 * (size + age * (1 + .8 * frame.density));
+      this.values[j+1] = age; this.values[j+2] = Math.min(1, (life - age) * 3);
+    }
+    this.geometry.instanceCount = count;
+    for (const name of ['offset', 'parcel']) {
+      const attribute = this.geometry.getAttribute(name) as THREE.InstancedBufferAttribute;
+      attribute.clearUpdateRanges(); attribute.addUpdateRange(0, count * 3); attribute.needsUpdate = true;
+    }
   }
-  dispose() { this.geometry.dispose(); this.material.dispose(); }
+  dispose() { this.disposed = true; this.geometry.dispose(); this.material.dispose(); }
 }

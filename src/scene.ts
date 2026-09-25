@@ -12,6 +12,7 @@ import {SceneLighting} from './celestial.ts';
 import {makeLaunchSite} from './launch-site.ts';
 import {VabEnvironment, setVabLighting} from './vab.ts';
 import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} from './exhaust.ts';
+import {mergeStaticMeshes} from './static-meshes.ts';
 import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
 
@@ -35,7 +36,7 @@ function makeSolarTexture(){
   for(let x=3;x<256;x+=32)for(let y=3;y<128;y+=32){ctx.fillStyle='#276281';ctx.fillRect(x,y,27,27);ctx.fillStyle='#5592a7';ctx.fillRect(x+1,y+10,25,1);ctx.fillRect(x+1,y+20,25,1);}
   const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
 }
-export function makePart(type: PartType){
+export function makePart(type: PartType, merge=true){
   const g=new THREE.Group();
   if(type==='chassis'){
     put(g,box(1.8,4,.45,'#b8c1ac',.55));
@@ -101,6 +102,7 @@ export function makePart(type: PartType){
     put(g,new THREE.Mesh(new THREE.PlaneGeometry(1.09,.66),m),.76,0,.037);
     const back=put(g,new THREE.Mesh(new THREE.PlaneGeometry(1.09,.66),m),.76,0,-.037);back.rotation.y=Math.PI;
   }
+  if(merge)mergeStaticMeshes(g);
   return g;
 }
 function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof THREE.Mesh))return;o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(!Object.values(materials).includes(m))m.dispose();});}

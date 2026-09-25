@@ -15,6 +15,7 @@ export interface PhysicsBody {
 }
 export interface PhysicsKernel {
   name: string;
+  integrateInto?(sim: PhysicsBody, state: number[], dt: number, actuation: ForceTorque, output: number[]): number[];
   integrate(
     sim: PhysicsBody,
     state: number[],

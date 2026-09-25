@@ -6,11 +6,18 @@ import {PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GROUND_ALTI
 
 import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
 import {roverForces,WHEEL} from './rover.ts';
+import {prepareMassModel} from '../shared/mass-model.ts';
 import {physicsKernel} from './physics-kernel.ts';
 export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.ts';
 
 export class Simulation{
   kernel: PhysicsKernel;
+  private integrationOutput = Array<number>(13);
+  private massModel?: ReturnType<typeof prepareMassModel>;
+  private updateMass() {
+    if (this.massModel?.craft !== this.craft) this.massModel = prepareMassModel(this.craft);
+    return this.massModel.update(this.tankFuel, this.stats.mono ? this.mono / this.stats.mono : 0);
+  }
   id!: string; craft!: Craft; stats!: ReturnType<typeof craftStats>; props!: ReturnType<typeof massProperties>;
   createdAt=0; destroyedAt: number | null=null; impact: FlightSnapshot['impact']=null;
   tankFuel: Record<string,number>={}; mono=0; charge=0; time=0; status: FlightStatus='pad';
@@ -34,7 +41,7 @@ export class Simulation{
   reset(craft: Craft){
     this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
     this.time=0;this.status='pad';this.maxAltitude=0;this.maxQ=0;this.trail=[];this.events=[];this.debris=[];this.separations=[];this.passive=false;
-    this.props=massProperties(craft);this.padHeight=this.props.com[0];
+    this.props=this.updateMass();this.padHeight=this.props.com[0];
     this.position=[EARTH.radius+this.padHeight,0,0];this.velocity=cross([0,0,EARTH.spin],this.position);
     this.quaternion=[0,0,0,1];this.omega=[0,0,EARTH.spin];
     if(this.rover){
@@ -67,7 +74,7 @@ export class Simulation{
     for(const [body,shift] of ([[this,[height,0,0]],[debris,[0,0,0]]] as [Simulation,number[]][])){
       body.stats=craftStats(body.craft);body.tankFuel=Object.fromEntries(body.craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,fuel[p.id]]));
       body.mono=body.stats.mono*monoFraction;body.charge=body.stats.power*chargeFraction;
-      body.props=massProperties(body.craft,body.tankFuel,monoFraction);
+      body.props=body.updateMass();
       const offset=sub(add(body.props.com,shift),oldProps.com);
       body.position=add(origin,rotate(q,offset));body.velocity=add(velocity,rotate(q,cross(omega,offset)));
       body.quaternion=[...q];body.omega=[...omega];body.clearCommands();
@@ -99,7 +106,7 @@ export class Simulation{
       piece.time=this.time;piece.createdAt=this.time;piece.expiresAt=this.time+20;piece.status='flying';piece.collisionGraceUntil=this.time+.5;
       piece.tankFuel=Object.fromEntries(craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,this.tankFuel[p.id]||0]));
       piece.mono=piece.stats.mono*monoFraction;piece.charge=piece.stats.power*chargeFraction;
-      piece.props=massProperties(craft,piece.tankFuel,monoFraction);piece.padHeight=0;
+      piece.props=piece.updateMass();piece.padHeight=0;
       const localCore=piece.props.parts.find(p=>p.id===core.id)!;
       const offset=sub(add(sub(core.position,localCore.position),piece.props.com),old.com);
       piece.position=add(this.position,rotate(this.quaternion,offset));piece.quaternion=[...this.quaternion];
@@ -182,7 +189,7 @@ export class Simulation{
       this.omega=rotate(qconj(this.quaternion),spin);this.acceleration=cross(spin,this.velocity);this.angularAcceleration=[0,0,0];
       this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};this.lastActuation={force:[0,0,0],torque:[0,0,0],thrust:0,engineResults:[],rcsUsed:0,watts:0};this.time+=dt;return;
     }
-    this.props=massProperties(this.craft,this.tankFuel,this.stats.mono?this.mono/this.stats.mono:0);
+    this.props=this.updateMass();
     const a=this.actuation(now,dt),props=this.props;
     if(this.rover){
       const ground=roverForces(this,dt,now);this.wheelStates=ground.states;
@@ -198,7 +205,7 @@ export class Simulation{
       this.velocity=cross([0,0,EARTH.spin],this.position);this.quaternion=axisAngle([0,0,1],spin);this.omega=[0,0,EARTH.spin];
       this.acceleration=cross([0,0,EARTH.spin],this.velocity);this.angularAcceleration=[0,0,0];
     }else{
-      const next=this.kernel.integrate(this,start,dt,a);
+      const next=this.kernel.integrateInto?.(this,start,dt,a,this.integrationOutput) ?? this.kernel.integrate(this,start,dt,a);
       if(!next.every(Number.isFinite)){this.status='crashed';this.clearCommands();this.event('数値計算を停止しました');return;}
       this.position=next.slice(0,3);this.velocity=next.slice(3,6);this.quaternion=qnorm(next.slice(6,10));this.omega=next.slice(10,13);
       this.acceleration=mul(sub(this.velocity,start.slice(3,6)),1/dt);this.angularAcceleration=mul(sub(this.omega,start.slice(10,13)),1/dt);
@@ -221,16 +228,18 @@ export class Simulation{
     this.maxAltitude=Math.max(this.maxAltitude,altitude);this.maxQ=Math.max(this.maxQ,aero.q);
     if(this.status==='flying'&&Math.floor(this.time*2)!==Math.floor((this.time-dt)*2)){this.trail.push([...this.position]);if(this.trail.length>2400)this.trail.shift();}
   }
-  snapshot(): FlightSnapshot{
+  snapshot(cache?: Map<Simulation, FlightSnapshot>): FlightSnapshot{
+    const cached=cache?.get(this);if(cached)return cached;
     const r=norm(this.position),up=unit(this.position),east=unit(cross([0,0,1],up)),north=cross(up,east);
     const sv=sub(this.velocity,cross([0,0,EARTH.spin],this.position)),verticalSpeed=dot(sv,up);
     const orbit=orbitalElements(this.position,this.velocity),inverse=qconj(this.quaternion);
-    return {id:this.id,craft:this.craft,createdAt:this.createdAt,fragment:!!this.fragment,passive:this.passive,impact:this.impact,time:this.time,status:this.status,position:this.position,velocity:this.velocity,quaternion:this.quaternion,omega:this.omega,
+    const snapshot: FlightSnapshot = {id:this.id,craft:this.craft,createdAt:this.createdAt,fragment:!!this.fragment,passive:this.passive,impact:this.impact,time:this.time,status:this.status,position:this.position,velocity:this.velocity,quaternion:this.quaternion,omega:this.omega,
       altitude:Math.max(0,r-EARTH.radius-this.padHeight),altitudeAsl:r-EARTH.radius,verticalSpeed,horizontalSpeed:Math.sqrt(Math.max(0,dot(sv,sv)-verticalSpeed**2)),speed:norm(sv),
       mass:this.props.mass,fuel:this.fuel,mono:this.mono,charge:this.charge,orbit,...this.last,maxAltitude:this.maxAltitude,maxQ:this.maxQ,
       upBody:rotate(inverse,up),eastBody:rotate(inverse,east),northBody:rotate(inverse,north),surfaceVelocityBody:rotate(inverse,sv),orbitalVelocityBody:rotate(inverse,this.velocity),
       gravity:EARTH.mu/(r*r),events:this.events,stats:this.stats,com:this.props.com,
       wheels:this.wheelStates,engines:this.lastActuation?.engineResults||[],powerGeneration:this.lastActuation?.watts||0,
-      separations:this.separations,debris:this.debris.map(d=>d.snapshot())};
+      separations:this.separations,debris:this.debris.map(d=>d.snapshot(cache))};
+    cache?.set(this,snapshot);return snapshot;
   }
 }

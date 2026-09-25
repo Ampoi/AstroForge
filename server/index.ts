@@ -5,6 +5,9 @@ import http from 'node:http';
 import {readFile,mkdir,writeFile,rename} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve,extname} from 'node:path';
+import {StateStreamEncoder} from '../shared/state-stream.ts';
+import type {Simulation} from './physics.ts';
+import type {FlightSnapshot} from './types.ts';
 import {FlightWorld} from './world.ts';
 import {physicsKernel} from './physics-kernel.ts';
 import {randomUUID} from 'node:crypto';
@@ -23,7 +26,8 @@ try{savedCrafts=JSON.parse(await readFile(resolve(dataDir,'crafts.json'),'utf8')
 if(savedCrafts.length)craft=structuredClone(savedCrafts.at(-1)!.craft);
 else if(![starterCraft(),twoStageCraft(),roverCraft()].some(p=>p.name===craft.name&&JSON.stringify(p.parts)===JSON.stringify(craft.parts)))savedCrafts=[{id:randomUUID(),craft:structuredClone(craft)}];
 let world=new FlightWorld(launchIssues(craft as Craft).length?twoStageCraft():craft as Craft),sim=world.active;
-const udp=new VehicleUdp(config),clients=new Set<ServerResponse>();
+const udp=new VehicleUdp(config),clients=new Map<ServerResponse,{compact:boolean;revision:number}>();
+const streamEncoder=new StateStreamEncoder();
 let mode: Mode='flight',physicsMs=0;
 let controlQueue=Promise.resolve();
 function changeControl(operation: ()=>Promise<void>){const pending=controlQueue.then(operation);controlQueue=pending.catch(()=>{});return pending;}
@@ -44,25 +48,28 @@ function saveCraft(input: Record<string, unknown>){
   });
   saveQueue=operation.then(()=>{},()=>{});return operation;
 }
-export function state(){return {mode,craft:sim.craft,draft:craft,library:library(),activeVehicleId:world.activeId,vehicles:world.snapshots().map(v=>({...v,udp:udp.snapshot(v.id)})),timeScale:world.timeScale,simulationTime:world.time,utc:new Date().toISOString(),flight:sim.snapshot(),trail:sim.trail.filter((_,i)=>i%Math.max(1,Math.floor(sim.trail.length/360))===0),
+export function state(){const snapshots=new Map<Simulation,FlightSnapshot>();return {mode,craft:sim.craft,draft:craft,library:library(),activeVehicleId:world.activeId,vehicles:world.snapshots(snapshots).map(v=>({...v,udp:udp.snapshot(v.id)})),timeScale:world.timeScale,simulationTime:world.time,utc:new Date().toISOString(),flight:sim.snapshot(snapshots),trail:sim.trail.filter((_,i)=>i%Math.max(1,Math.floor(sim.trail.length/360))===0),
   connection:{...config,...udp.snapshot(sim.id),physicsMs,physicsBackend:physicsKernel.name,slowFrames:world.slowFrames}};}
 const json=(res: ServerResponse,code: number,value: unknown)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
 async function body(req: IncomingMessage): Promise<unknown>{
   let bytes=0;const chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>65536)throw Error('リクエストが大きすぎます');chunks.push(chunk);}
   return JSON.parse(Buffer.concat(chunks).toString()||'{}');
 }
-const mime: Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json','.md':'text/plain; charset=utf-8','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon'};
+const mime: Record<string,string>={'.wasm':'application/wasm','.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json','.md':'text/plain; charset=utf-8','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon'};
 let vite: import('vite').ViteDevServer | null=null;
 const server=http.createServer(async(req,res)=>{
   const allowedHosts=[`localhost:${config.httpPort}`,`127.0.0.1:${config.httpPort}`];
   if(!allowedHosts.includes(req.headers.host ?? '')){json(res,403,{error:'Local host required'});return;}
   if(req.headers.origin&&!allowedHosts.some(h=>req.headers.origin===`http://${h}`)){json(res,403,{error:'Same origin required'});return;}
   try{
-    const path=new URL(req.url ?? '/',`http://${req.headers.host}`).pathname;
+    const url=new URL(req.url ?? '/',`http://${req.headers.host}`),path=url.pathname;
     if(req.method==='GET'&&path==='/api/state'){json(res,200,state());return;}
     if(req.method==='GET'&&path==='/api/events'){
       res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store','Connection':'keep-alive','X-Accel-Buffering':'no'});
-      res.write(`data: ${JSON.stringify(state())}\n\n`);clients.add(res);req.on('close',()=>clients.delete(res));return;
+      const compact=url.searchParams.get('compact')==='1',current=state();
+      const encoded=compact?streamEncoder.encode(current):null;
+      res.write(encoded?encoded.configuration+encoded.frame:`data: ${JSON.stringify(current)}\n\n`);
+      clients.set(res,{compact,revision:encoded?.revision??0});req.on('close',()=>clients.delete(res));return;
     }
     if(req.method==='POST'&&path.startsWith('/api/')){
       if(!req.headers['content-type']?.startsWith('application/json')){json(res,415,{error:'JSON required'});return;}
@@ -121,8 +128,16 @@ const physicsTimer=setInterval(()=>{
 },1000/120);
 const telemetryTimer=setInterval(()=>udp.telemetry(world.timeScale),50);
 const browserTimer=setInterval(()=>{
-  if(!clients.size)return;const payload=`data: ${JSON.stringify(state())}\n\n`;
-  for(const client of clients){if(client.writableLength>512000){client.end();clients.delete(client);}else client.write(payload);}
+  if(!clients.size)return;const current=state();
+  let legacy: string | undefined,compact: ReturnType<StateStreamEncoder['encode']> | undefined;
+  for(const [client,session] of clients){
+    if(client.writableLength>512000){client.end();clients.delete(client);continue;}
+    if(session.compact){
+      compact??=streamEncoder.encode(current);
+      if(session.revision!==compact.revision){client.write(compact.configuration);session.revision=compact.revision;}
+      client.write(compact.frame);
+    }else{legacy??=`data: ${JSON.stringify(current)}\n\n`;client.write(legacy);}
+  }
 },100);
-function stop(){clearInterval(physicsTimer);clearInterval(telemetryTimer);clearInterval(browserTimer);for(const c of clients)c.end();server.close();void vite?.close();changeControl(()=>udp.close());}
+function stop(){clearInterval(physicsTimer);clearInterval(telemetryTimer);clearInterval(browserTimer);for(const c of clients.keys())c.end();server.close();void vite?.close();changeControl(()=>udp.close());}
 process.on('SIGINT',stop);process.on('SIGTERM',stop);

@@ -1,3 +1,4 @@
+import type {FlightSnapshot} from './types.ts';
 import type {Craft} from '../shared/types.ts';
 import {Simulation,STEP,EARTH} from './physics.ts';
 import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp,qmul,qconj} from '../shared/math.ts';
@@ -73,5 +74,5 @@ export class FlightWorld{
     if(elapsed>.25)this.slowFrames++;
     return steps;
   }
-  snapshots(){return this.bodies.map(v=>{const {debris,...snapshot}=v.snapshot();return {...snapshot,controllable:!v.passive&&!['destroyed','crashed','landed'].includes(v.status),trail:v.trail.filter((_,i)=>i%Math.max(1,Math.floor(v.trail.length/360))===0)};});}
+  snapshots(cache=new Map<Simulation,FlightSnapshot>()){return this.bodies.map(v=>{const {debris,...snapshot}=v.snapshot(cache);return {...snapshot,controllable:!v.passive&&!['destroyed','crashed','landed'].includes(v.status),trail:v.trail.filter((_,i)=>i%Math.max(1,Math.floor(v.trail.length/360))===0)};});}
 }
