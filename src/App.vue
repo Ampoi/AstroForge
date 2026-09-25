@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import PartIcon from "./components/PartIcon.vue";
-import { PARTS } from "../shared/craft.ts";
+import { PARTS, isRover } from "../shared/craft.ts";
+import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
+  displayRate,
+  renderFps,
+  frameRates,
+  setDisplayRate,
   sceneElement,
   helpDialog,
   craftDialog,
@@ -81,6 +86,9 @@ const categories = [
   ["propulsion", "推進"],
   ["electrical", "電源"],
   ["structure", "構造"],
+  ["mobility", "走行"],
+  ["sensors", "計測"],
+  ["robotics", "機構"],
 ];
 function closeOnBackdrop(event: MouseEvent) {
   const dialog = event.currentTarget as HTMLDialogElement;
@@ -109,7 +117,7 @@ function closeOnBackdrop(event: MouseEvent) {
           <span class="eyebrow">COMPONENT LIBRARY</span>
           <h1>パーツライブラリ</h1>
         </div>
-        <span class="count-badge">08</span>
+        <span class="count-badge">{{ Object.keys(PARTS).length }}</span>
       </div>
       <div class="category-tabs" aria-label="パーツ分類">
         <button
@@ -157,13 +165,15 @@ function closeOnBackdrop(event: MouseEvent) {
       <div class="library-foot">
         <span class="diameter-symbol">⌀</span>
         <div>
-          <strong>共通径 1.25 m</strong>
-          <p>面に取り付け、接続点の近くでスナップ</p>
+          <strong :style="{color:FACE_COLORS.standard}">標準径 ⌀1.25 m</strong>
+          <strong :style="{color:FACE_COLORS.slim}">細径 ⌀{{ SLIM_DIAMETER.toFixed(2) }} m</strong>
+          <p><span :style="{color:FACE_COLORS.custom}">橙：矩形・その他</span> · 異なる規格も接続可</p>
+          <p>断面を近づけて重ねると中心へスナップ</p>
         </div>
       </div>
     </aside>
     <main id="viewport" class="viewport">
-      <div id="scene" ref="sceneElement" aria-label="ロケットの3D表示">
+      <div id="scene" ref="sceneElement" aria-label="機体の3D表示">
         <p v-if="sceneError" class="px-8 pt-56 text-orange-200">
           3D表示にはWebGLが必要です。ブラウザのハードウェアアクセラレーションを有効にして再読み込みしてください。
         </p>
@@ -215,7 +225,7 @@ function closeOnBackdrop(event: MouseEvent) {
           id="snap-button"
           class="snap-indicator"
           :aria-pressed="snap"
-          title="近くの接続点へスナップ。Altキーで一時解除"
+          title="近づいた断面を中心へスナップ。Altキーで一時解除"
           @click="toggleSnap"
         >
           ⌖ スナップ {{ snap ? "ON" : "OFF" }}
@@ -244,7 +254,7 @@ function closeOnBackdrop(event: MouseEvent) {
                     vehicle.craft.name
                   }}</strong
                   ><small
-                    >{{ phase[vehicle.status]
+                    >{{ vehicle.wheels.length && vehicle.status === "flying" ? "地表走行" : phase[vehicle.status]
                     }}{{ vehicle.passive ? " · 分離物" : "" }}</small
                   >
                 </div>
@@ -281,7 +291,7 @@ function closeOnBackdrop(event: MouseEvent) {
                         >受信 :{{ vehicle.udp.commandPort }} · 送信 :{{
                           vehicle.udp.telemetryPort
                         }}</code
-                      ><button
+                      ><a v-if="vehicle.wheels.length" href="/docs/rover" target="_blank" rel="noreferrer">車輪の操作方法 ↗</a><button v-else
                         :data-copy-udp="vehicle.id"
                         title="この機体のデモ起動コマンドをコピー"
                         @click="copyDemo(vehicle.udp)"
@@ -328,7 +338,7 @@ function closeOnBackdrop(event: MouseEvent) {
             :class="{ active: globe }"
             @click="setView(true)"
           >
-            地球全景
+            マップ
           </button>
         </div>
         <label class="time-scale-label"
@@ -391,6 +401,17 @@ function closeOnBackdrop(event: MouseEvent) {
         </svg>
       </div>
       <div class="view-tools">
+        <details class="display-settings">
+          <summary class="icon-button" aria-label="表示設定" title="表示設定">⚙</summary>
+          <div class="display-settings-panel">
+            <label for="display-frame-rate">描画フレームレート</label>
+            <select id="display-frame-rate" :value="displayRate" @change="setDisplayRate">
+              <option v-for="option in frameRates" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <p class="display-fps">実測 {{ renderFps || '—' }} FPS</p>
+            <p>「画面に合わせる」はディスプレイの更新に同期します。実際のFPSは描画負荷によって変わります。</p>
+          </div>
+        </details>
         <button
           id="view-iso"
           class="icon-button"
@@ -456,7 +477,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span id="view-instructions">{{
           flying
             ? globe
-              ? "ドラッグで地球を回転 · スクロールで拡大・縮小"
+              ? "ドラッグで視点を回転 · スクロールで追跡中の機体を中心に拡大・縮小"
               : "カメラ操作のみ · 飛行制御はUDPから"
             : "パーツをドラッグして子ごと移動 · 空白をドラッグで回転"
         }}</span
@@ -471,7 +492,11 @@ function closeOnBackdrop(event: MouseEvent) {
         </button>
       </div>
       <div id="flight-hud" class="flight-hud" :hidden="!flying">
-        <div class="hud-main">
+        <div v-if="focused?.wheels.length" class="hud-main">
+          <span>GROUND SPEED</span><strong>{{ num(focused.speed, 1) }}<span>m/s</span></strong>
+          <span>接地 {{ focused.wheels.filter(w => w.grounded).length }} / {{ focused.wheels.length }} 輪</span>
+        </div>
+        <div v-else class="hud-main">
           <span>ALTITUDE</span
           ><strong id="hud-altitude"
             ><template v-if="focused?.status === 'destroyed'">—</template
@@ -589,6 +614,10 @@ function closeOnBackdrop(event: MouseEvent) {
                   : ""
               }}
             </p>
+            <p v-if="!PARTS[selection.type].radial" class="part-description">
+              上端：{{ faceLabel(attachmentFace(selection.type,1)!) }}<br />
+              下端：{{ faceLabel(attachmentFace(selection.type,-1)!) }}
+            </p>
             <template v-if="PARTS[selection.type].radial && selection.parent"
               ><label class="position-control"
                 >上下位置<input
@@ -674,7 +703,7 @@ function closeOnBackdrop(event: MouseEvent) {
               @click="undo"
             >
               ↶ 戻す</button
-            ><button id="reset-button" @click="reset('starter')">1段機体</button
+            ><button id="rover-button" @click="reset('rover')">ローバー</button><button id="reset-button" @click="reset('starter')">1段機体</button
             ><button id="empty-button" @click="reset('empty')">空にする</button>
           </div>
           <button
@@ -683,9 +712,10 @@ function closeOnBackdrop(event: MouseEvent) {
             :disabled="!connected || !!issues.length"
             @click="launch"
           >
-            <span>発射台へ</span><span>↗</span>
+            <span>{{ isRover(active) ? "地表へ" : "発射台へ" }}</span><span>↗</span>
           </button>
-          <p>
+          <p v-if="isRover(active)">車輪名を指定して駆動・操舵・制動を操作します。<a href="/docs/rover" target="_blank" rel="noreferrer">ローバーの操作方法 ↗</a></p>
+          <p v-else>
             別ターミナルで
             <code data-demo-command>{{
               demoCommand() ?? "機体一覧でUDPをONにしてください"
@@ -780,7 +810,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>01</span>
         <p>
           <strong>ロケットを組み立てる</strong
-          >最初の胴体パーツを配置してルートを作成。接続点に近づけるとスナップします。ドラッグで子パーツも一緒に移動し、未接続のパーツは半透明になります。半透明のパーツは集計・保存・発射に含まれません。Escで取消、⌘Zで元に戻せます。
+          >最初の胴体パーツを配置してルートを作成。空いている断面の縁は標準径が緑、細径が紫、矩形などが橙です。断面を近づけて重ねると中心へスナップし、異なる規格でも接続できます。Altでスナップを一時解除。ドラッグで子パーツも一緒に移動し、未接続のパーツは半透明になります。半透明のパーツは集計・保存・発射に含まれません。Escで取消、⌘Zで元に戻せます。
         </p>
       </div>
       <div>
@@ -794,11 +824,12 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>03</span>
         <p>
           <strong>UDPでフライトを制御する</strong
-          >次のコマンドを別ターミナルで実行すると点火・姿勢制御を行います。2段機体は燃料切れで下段を切り離し、上段を点火します。「地球全景」で飛行履歴と予測軌道を確認できます。
+          >次のコマンドを別ターミナルで実行すると点火・姿勢制御を行います。2段機体は燃料切れで下段を切り離し、上段を点火します。「マップ」で飛行履歴と予測軌道を確認できます。
         </p>
       </div>
     </div>
-    <div class="command-box">
+    <p v-if="focused?.wheels.length"><a href="/docs/rover" target="_blank" rel="noreferrer">ローバーのUDP操作手順 ↗</a> — 車輪名ごとにモーター・操舵・ブレーキを指定します。</p>
+    <div v-else class="command-box">
       <code data-demo-command>{{
         demoCommand() ?? "機体一覧でUDPをONにしてください"
       }}</code
@@ -846,7 +877,7 @@ function closeOnBackdrop(event: MouseEvent) {
       <div v-for="entry in library" :key="entry.id" class="library-entry">
         <div>
           <span class="eyebrow">{{
-            ["starter", "two-stage"].includes(entry.id)
+            ["starter", "two-stage", "rover"].includes(entry.id)
               ? "PRESET"
               : "SAVED VEHICLE"
           }}</span
@@ -864,7 +895,7 @@ function closeOnBackdrop(event: MouseEvent) {
             class="library-launch"
             @click="launchSaved(entry.id)"
           >
-            発射台へ ↗
+            {{ isRover(entry.craft) ? "地表へ" : "発射台へ" }} ↗
           </button>
         </div>
       </div>

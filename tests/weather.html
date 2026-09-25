@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><title>Regional cloud checks</title>
+<style>body{margin:0;background:#07101a;color:#eee;font:14px system-ui}nav{min-height:52px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0 12px}button{padding:6px 10px}canvas{display:block}#status{margin-left:auto}</style>
+<nav><strong>Regional clouds</strong><button>Atlantic</button><button>Pacific</button><button>Asia</button><button>South</button><button>North pole</button><button>Clear sky</button><button>Cloudy sky</button><label><input type="checkbox" id="clouds" checked>Clouds</label><span id="status">Loading</span></nav><div id="canvas"></div>
+<script type="module">
+// Static views: use the production environment, with no physics server or
+// background animation competing with GPU benchmarks in other tabs.
+import * as THREE from 'three';
+import {EarthEnvironment} from '../src/environment.ts';
+import {EARTH_SPIN} from '../src/celestial.ts';
+const renderer=new THREE.WebGLRenderer({antialias:false});renderer.setPixelRatio(1);renderer.autoClear=false;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.3;
+document.querySelector('#canvas').append(renderer.domElement);
+const environment=new EarthEnvironment();await environment.ready;
+environment.trail.visible=false;environment.prediction.visible=false;environment.destroyed=true;
+const atlas=environment.uniforms.cloudWeather.value,empty=new THREE.CubeTexture(Array.from({length:6},()=>new THREE.DataTexture(new Uint8Array(4),1,1)));empty.needsUpdate=true;
+const camera=new THREE.PerspectiveCamera(34,1,.05,4000),center=new THREE.Vector3();
+let current='Atlantic';
+const locations={Atlantic:[-45,30],Pacific:[-150,20],Asia:[110,30],South:[20,-40],'North pole':[0,88],'Clear sky':[-40,27],'Cloudy sky':[-52,57]};
+function view(name){
+  current=name;
+  environment.uniforms.cloudWeather.value=document.querySelector('#clouds').checked?atlas:empty;
+  const [lon,lat]=locations[name].map(v=>v*Math.PI/180),globe=!name.includes('sky');
+  const up=new THREE.Vector3(Math.cos(lat)*Math.sin(lon),Math.cos(lat)*Math.cos(lon),-Math.sin(lat));
+  const north=new THREE.Vector3(-Math.sin(lat)*Math.sin(lon),-Math.sin(lat)*Math.cos(lon),-Math.cos(lat));
+  environment.position.copy(up);
+  // Put local noon at the selected longitude; the Sun remains the real body.
+  environment.sun.update((Math.atan2(-.8,.3)-lon)/EARTH_SPIN);
+  environment.uniforms.sunDirection.value.copy(environment.sun.position).normalize();
+  camera.up.copy(globe?north:up);
+  camera.position.copy(up).multiplyScalar(globe?39:8);
+  camera.lookAt(globe?center:camera.position.clone().addScaledVector(north,1).addScaledVector(up,.7));
+  const width=innerWidth,height=Math.max(1,innerHeight-document.querySelector('nav').offsetHeight);
+  renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();
+  renderer.clear();environment.render(renderer,camera,globe,center);
+  const valid=renderer.info.programs.every(p=>p.diagnostics?.runnable!==false);
+  document.querySelector('#status').textContent=`${name} · shaders ${valid?'OK':'FAILED'}`;
+}
+for(const b of document.querySelectorAll('button'))b.onclick=()=>view(b.textContent);
+document.querySelector('#clouds').onchange=()=>view(current);
+window.addEventListener('resize',()=>view(current));
+window.addEventListener('pagehide',()=>{environment.dispose();empty.dispose();renderer.dispose();});
+view(current);
+</script></html>

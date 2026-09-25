@@ -109,9 +109,11 @@ node --import tsx tests/separation-smoke.js http://127.0.0.1:3002
 
 # PyLoNを別途チェックアウトして上流のPythonデコーダーと照合
 python3 tests/upstream_compatibility.py /path/to/PyLoN
+# 本体サーバーを起動せず、実UDPとbridgeのセッション処理を往復検証
+python3 tests/bridge_roundtrip.py /path/to/PyLoN
 ```
 
-実UDP・デモ・分離の試験は機体の配置や飛行状態を変更するため、日常の飛行とは別のサーバー・保存先を使います。上流互換試験はパケット変換関数の確認で、ROS/DDS全体の結合試験ではありません。
+実UDP・デモ・分離の試験は機体の配置や飛行状態を変更するため、日常の飛行とは別のサーバー・保存先を使います。`upstream_compatibility.py`はパケット変換関数の確認です。`bridge_roundtrip.py`は本体のUDPアダプタとPyLoNの`BridgeRuntime`をループバックUDPで接続し、取得・更新・解放、着地・墜落後のsnapshot継続、制御拒否、機体消失とUDP OFFを検証します。ROSは不要で、PyLoNチェックアウトの変更も行いません。ROS/DDSまでの往復検証は外部の`AstroForge_PyLoN_demo/scripts/test-connection.sh`で実施します。この追加のために本体のサーバー・UI・物理計算・ライフサイクルへデモ用処理を追加していません。
 
 ## ドキュメントを編集する
 

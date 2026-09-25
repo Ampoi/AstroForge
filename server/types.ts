@@ -1,5 +1,6 @@
 import type {
   Craft,
+  WheelState,
   FlightStatus,
   ForceTorque,
   AeroResult,
@@ -14,6 +15,7 @@ export interface PhysicsBody {
 }
 export interface PhysicsKernel {
   name: string;
+  integrateInto?(sim: PhysicsBody, state: number[], dt: number, actuation: ForceTorque, output: number[]): number[];
   integrate(
     sim: PhysicsBody,
     state: number[],
@@ -73,6 +75,9 @@ export interface FlightSnapshot {
   stats: ReturnType<typeof craftStats>;
   com: number[];
   engines: EngineResult[];
+  joints: {id:string;position:number}[];
+  partPoses: {id:string;position:number[];rotation:number[]}[];
+  wheels: WheelState[];
   powerGeneration: number;
   separations: { id: string; time: number }[];
   debris: FlightSnapshot[];
@@ -92,7 +97,7 @@ export interface WireCommand {
   controllerId: string;
   leaseId: string;
   vesselId: string;
-  action: string;
+  action: string | number;
   priority: number;
   suppressSas: boolean;
   leaseDurationSeconds: number;
@@ -114,6 +119,10 @@ export interface WireCommand {
   gimbalYaw: number;
   gimbalRoll: number;
   thrustLimit: number;
+  targetAngularVelocity: number;
+  steeringAngle: number;
+  maxDriveTorque: number;
+  brake: number;
   hasFlight: boolean;
   hasSeparation: boolean;
   renewLease: boolean;

@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><title>Atmosphere frame benchmark</title>
+<style>body{background:#101923;color:#eee;font:14px monospace}canvas{max-width:100%;height:auto}pre{white-space:pre-wrap;max-height:180px;overflow:auto}</style>
+<button id="run">Run benchmark</button><pre id="results">Ready — fixed 1280×720, DPR 1, 12 measured frames per view after 3 warmup frames. Uses GPU timer queries when available, otherwise synchronous pixel readback; compares the complete atmosphere pass, excluding vehicle geometry.</pre><div id="canvas"></div>
+<script type="module">
+import * as THREE from 'three';
+import {EarthEnvironment,EARTH_RADIUS} from '../src/environment.ts';
+const renderer=new THREE.WebGLRenderer({antialias:false});renderer.setSize(1280,720);renderer.setPixelRatio(1);renderer.autoClear=false;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.3;
+document.querySelector('#canvas').append(renderer.domElement);
+const environment=new EarthEnvironment();await environment.ready;
+const camera=new THREE.PerspectiveCamera(34,1280/720,.05,4000),center=new THREE.Vector3();
+const gl=renderer.getContext(),timer=gl.getExtension('EXT_disjoint_timer_query_webgl2'),pixel=new Uint8Array(4);
+const next=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+const views=[['Ground',0,false],['Inside low clouds',1800,false],['Above clouds',12000,false],['Orbit',400000,true],['Cloudy region',0,false,-52,57],['Clear region',0,false,-40,27]];
+document.querySelector('#run').onclick=async()=>{
+  document.querySelector('#run').disabled=true;const results=[];
+  try{
+  for(const [name,height,globe,lon,lat] of views){
+    environment.position.set(0,1+height/EARTH_RADIUS,0);
+    camera.up.set(0,1,0);
+    if(globe){camera.position.set(-22,32,20);camera.lookAt(0,0,0);}
+    else{camera.position.set(0,8,0);camera.lookAt(-90,height>6000?-10:28,-55);}
+    if(lon!==undefined){
+      const a=lon*Math.PI/180,b=lat*Math.PI/180;
+      const up=new THREE.Vector3(Math.cos(b)*Math.sin(a),Math.cos(b)*Math.cos(a),-Math.sin(b));
+      const north=new THREE.Vector3(-Math.sin(b)*Math.sin(a),-Math.sin(b)*Math.cos(a),-Math.cos(b));
+      environment.position.copy(up);camera.up.copy(up);camera.position.copy(up).multiplyScalar(8);
+      camera.lookAt(camera.position.clone().add(north).addScaledVector(up,.7));
+    }
+    const timings=[];
+    for(let i=0;i<15;i++){
+      await next();
+      if(gl.isContextLost())throw Error('WebGL context lost');
+      const query=timer?gl.createQuery():null,start=performance.now();
+      if(query)gl.beginQuery(timer.TIME_ELAPSED_EXT,query);
+      renderer.clear();environment.render(renderer,camera,globe,center);
+      if(renderer.info.programs.some(p=>p.diagnostics?.runnable===false))throw Error('Shader compilation failed');
+      let elapsed;
+      if(query){
+        gl.endQuery(timer.TIME_ELAPSED_EXT);gl.flush();
+        let polls=0;
+        while(!gl.getQueryParameter(query,gl.QUERY_RESULT_AVAILABLE)){
+          if(++polls>180||gl.isContextLost())throw Error('GPU timer timeout');
+          await next();
+        }
+        if(gl.getParameter(timer.GPU_DISJOINT_EXT))throw Error('GPU timer disjoint: rerun benchmark');
+        elapsed=gl.getQueryParameter(query,gl.QUERY_RESULT)/1e6;gl.deleteQuery(query);
+      }else{gl.readPixels(640,360,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);elapsed=performance.now()-start;}
+      if(i>=3)timings.push(elapsed);
+    }
+    timings.sort((a,b)=>a-b);results.push({view:name,medianMs:+((timings[5]+timings[6])/2).toFixed(2),p95Ms:+timings[11].toFixed(2)});
+    document.querySelector('#results').textContent=JSON.stringify({resolution:'1280x720',method:timer?'GPU timer':'synchronous pixel readback',samples:12,results},null,2);
+  }
+  document.querySelector('#results').textContent+='\nComplete';
+  }catch(error){document.querySelector('#results').textContent=`FAILED: ${error.message}`;}
+  finally{document.querySelector('#run').disabled=false;}
+};
+window.addEventListener('pagehide',()=>{environment.dispose();renderer.dispose();});
+</script></html>

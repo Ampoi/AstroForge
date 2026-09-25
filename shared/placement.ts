@@ -1,5 +1,5 @@
 import type {Craft, PartType, SurfaceHit} from './types.ts';
-import {PARTS,layoutCraft,surfaceRadius} from './craft.ts';
+import {isEngine,PARTS,layoutCraft,surfaceRadius} from './craft.ts';
 
 export const SNAP_DISTANCE=.12;
 export const SURFACE_LEVELS=[-.4,0,.4];
@@ -13,16 +13,17 @@ export function resolvePlacement(craft: Craft,type: PartType,hit: SurfaceHit | n
   if(!def||!target||PARTS[target.type].radial||type==='pod')return null;
   const part=layoutCraft(craft).find(p=>p.id===target.id)!,localX=hit!.point[0]-part.position[0];
   if(def.radial){
-    if(target.type==='engine'||Math.abs(hit!.normal?.[0]||0)>.85)return null;
+    if(isEngine(target.type)||Math.abs(hit!.normal?.[0]||0)>.85)return null;
     let offset=Math.max(-.5,Math.min(.5,localX/part.def.height)),angle=Math.atan2(hit!.point[2],hit!.point[1]);
     let snapped=false;
     if(snap){
       let nearest=SNAP_DISTANCE;const rawOffset=offset,rawAngle=angle;
       for(const level of SURFACE_LEVELS)for(const a of SURFACE_ANGLES){
-        const distance=Math.hypot((rawOffset-level)*part.def.height,wrap(rawAngle-a)*surfaceRadius(target.type,rawOffset));
+        const distance=Math.hypot((rawOffset-level)*part.def.height,wrap(rawAngle-a)*surfaceRadius(target.type,rawOffset,rawAngle));
         if(distance<nearest){nearest=distance;offset=level;angle=a;snapped=true;}
       }
     }
+    if(type==='wheel')angle=Math.cos(angle)>=0?0:Math.PI;
     return {kind:'surface',parent:target.id,offset,angle,snapped};
   }
   const core=craft.parts.filter(p=>!PARTS[p.type].radial),i=core.findIndex(p=>p.id===target.id);
@@ -30,7 +31,7 @@ export function resolvePlacement(craft: Craft,type: PartType,hit: SurfaceHit | n
   if(index===0)return null;
   // Axial components mate on end faces. A side hit selects the nearest end face.
   const trial=[...core];trial.splice(index,0,{id:'placement_preview',type});
-  if(trial.some((p,j)=>p.type==='engine'&&j<trial.length-1&&trial[j+1].type!=='decoupler'))return null;
+  if(trial.some((p,j)=>isEngine(p.type)&&j<trial.length-1&&trial[j+1].type!=='decoupler'))return null;
   return {kind:'stack',target:target.id,side,index,snapped:true};
 }
 

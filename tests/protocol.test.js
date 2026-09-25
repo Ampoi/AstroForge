@@ -62,3 +62,16 @@ test('stationary launch pad has zero ground-truth acceleration in the rotating E
   const {p,sim}=setup();sim.step();const truth=p.telemetry().find(p=>p.type==='pylon_ground_truth');
   assert.ok(Math.hypot(...truth.linearAcceleration)<1e-8);assert.ok(Math.hypot(...truth.angularVelocityBody)<1e-8);
 });
+test('touchdown preserves the telemetry session but revokes control',()=>{
+  for(const status of ['landed','crashed']){
+    const {p,sim,acquire,send,engine}=setup();acquire();send(engine());sim.status=status;
+    const packets=p.telemetry();
+    assert.equal(packets[0].available,true);
+    assert.equal(packets.find(p=>p.type==='pylon_control_snapshot').flight.landed,status==='landed');
+    assert.equal(p.owner.state,0);assert.deepEqual(sim.engines,{});
+    assert.equal(send(engine({sequence:2})).reason,'control_unavailable');
+    assert.equal(acquire({sequence:2}).reason,'control_unavailable');
+    sim.status='destroyed';assert.equal(p.telemetry()[0].available,false);
+    p.available=false;assert.equal(p.telemetry()[0].available,false);
+  }
+});

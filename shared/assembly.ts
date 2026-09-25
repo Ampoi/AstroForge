@@ -1,7 +1,8 @@
 import type {Craft, Design, Assembly, AssemblyPart, Part, PartType, LayoutPart, SurfaceHit, AssemblyPlacement, PlacementOptions} from './types.ts';
 import {record} from './errors.ts';
-import {PARTS,layoutCraft,craftStats,surfaceRadius,symmetryAngles,validateCraft} from './craft.ts';
+import {isEngine,PARTS,layoutCraft,craftStats,surfaceRadius,symmetryAngles,validateCraft} from './craft.ts';
 import {SNAP_DISTANCE,SURFACE_LEVELS,SURFACE_ANGLES} from './placement.ts';
+import {attachmentFace,facesOverlap,matchingFaces} from './attachment.ts';
 
 // The workshop is a forest. Only the tree containing rootId belongs to the vehicle.
 // Positions stay in the workshop's body frame when a branch is disconnected.
@@ -73,12 +74,12 @@ export function assemblyLayout(craft: Design): LayoutPart[]{
   return craft.parts.map(p=>({...p,def:PARTS[p.type],connected:ids.has(p.id)}));
 }
 function surfacePosition(parent: AssemblyPart,type: PartType,offset: number,angle: number){
-  const radius=surfaceRadius(parent.type,offset)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[type]||0);
+  const radius=surfaceRadius(parent.type,offset,angle)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[type]||0);
   return [parent.position[0]+offset*PARTS[parent.type].height,parent.position[1]+Math.cos(angle)*radius,parent.position[2]+Math.sin(angle)*radius];
 }
 function endPosition(p: AssemblyPart,side: number){return [p.position[0]+side*PARTS[p.type].height/2,...p.position.slice(1)];}
 const distance=(a: number[],b: number[])=>Math.hypot(...a.map((v,i)=>v-b[i]));
-function occupied(craft: Assembly,p: AssemblyPart,side: number,exclude: Set<string>){
+export function occupied(craft: Assembly,p: AssemblyPart,side: number,exclude: Set<string>){
   const end=endPosition(p,side);
   return craft.parts.some(c=>c.id!==p.id&&!exclude.has(c.id)&&(c.parent===p.id||p.parent===c.id)&&!PARTS[c.type].radial&&distance(end,endPosition(c,-side))<.001);
 }
@@ -88,32 +89,42 @@ export function resolveAssemblyPlacement(craft: Assembly,type: PartType,hit: Sur
   if(movingId===craft.rootId)return {...free,kind:'root'};
   const target=craft.parts.find(p=>p.id===hit?.id&&!exclude.has(p.id));
   if(PARTS[type].radial){
-    if(!target||PARTS[target.type].radial||target.type==='engine'||Math.abs(hit!.normal?.[0]||0)>.85)return free;
+    if(!target||PARTS[target.type].radial||isEngine(target.type)||Math.abs(hit!.normal?.[0]||0)>.85)return free;
     let offset=Math.max(-.5,Math.min(.5,(hit!.point[0]-target.position[0])/PARTS[target.type].height));
     let angle=Math.atan2(hit!.point[2]-target.position[2],hit!.point[1]-target.position[1]),snapped=false;
     if(snap){
       let nearest=SNAP_DISTANCE;const rawOffset=offset,rawAngle=angle;
       for(const level of SURFACE_LEVELS)for(const a of SURFACE_ANGLES){
         const delta=Math.atan2(Math.sin(rawAngle-a),Math.cos(rawAngle-a));
-        const d=Math.hypot((rawOffset-level)*PARTS[target.type].height,delta*surfaceRadius(target.type,rawOffset));
+        const d=Math.hypot((rawOffset-level)*PARTS[target.type].height,delta*surfaceRadius(target.type,rawOffset,rawAngle));
         if(d<nearest){nearest=d;offset=level;angle=a;snapped=true;}
       }
     }
+    if(type==='wheel')angle=Math.cos(angle)>=0?0:Math.PI;
     return {kind:'surface',parent:target.id,offset,angle,snapped,position:surfacePosition(target,type,offset,angle)};
   }
   if(!snap)return free;
   // Only free mating faces can connect; neither an occupied face nor a descendant
   // can silently reparent a branch or create a cycle.
-  const candidates=target?[target]:craft.parts.filter(p=>!exclude.has(p.id));
-  let best: AssemblyPlacement | null=null,nearest=.55;
+  const candidates=craft.parts.filter(p=>!exclude.has(p.id));
+  let best: AssemblyPlacement | null=null,nearest=Infinity;
   for(const p of candidates){
     if(PARTS[p.type].radial)continue;
     for(const side of [1,-1]){
       if(occupied(craft,p,side,exclude))continue;
       if(moving&&occupied(craft,moving,-side,new Set(craft.parts.filter(c=>!exclude.has(c.id)).map(c=>c.id))))continue;
       const end=endPosition(p,side),position=[end[0]+side*PARTS[type].height/2,end[1],end[2]];
-      const d=target?Math.abs(hit!.point[0]-end[0]):distance(point,position);
-      if(d<nearest){nearest=d;best={kind:'stack',parent:p.id,side,position,snapped:true};}
+      const face=attachmentFace(p.type,side)!,incoming=attachmentFace(type,-side)!;
+      const axial=Math.abs(point[0]-position[0]),dy=point[1]-position[1],dz=point[2]-position[2];
+      const direct=target?.id===p.id&&Math.abs(hit!.point[0]-end[0])<.55;
+      // Retain precise point snapping, but also capture broad faces as their
+      // planes approach contact, even when the cursor hits another part.
+      const nearby=distance(point,position)<.55;
+      const overlap=axial<=SNAP_DISTANCE&&facesOverlap(face,incoming,dy,dz,SNAP_DISTANCE);
+      if(!direct&&!nearby&&!overlap)continue;
+      const d=direct?Math.abs(hit!.point[0]-end[0]):axial+Math.hypot(dy,dz)*.1;
+      const score=d+(direct?-1:0)+(matchingFaces(face,incoming)?0:.001);
+      if(score<nearest){nearest=score;best={kind:'stack',parent:p.id,side,position,snapped:true};}
     }
   }
   return best||free;
@@ -124,6 +135,7 @@ export function placeAssembly(craft: Assembly,type: PartType,placement: Assembly
   let p=result.parts.find(p=>p.id===movingId),ids=movingIds(result,movingId),roots: AssemblyPart[]=[];
   if(!p){
     count=PARTS[type].radial&&placement.kind==='surface'?(mirror?2:count):1;
+    if(type==='wheel')count=Math.min(count,2);
     if(result.parts.length+count>80)throw Error('パーツは80個まで配置できます');
     const group=count>1?idFactory('group',0):undefined;
     for(let i=0;i<count;i++){
