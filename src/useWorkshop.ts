@@ -670,6 +670,7 @@ export function useWorkshop() {
     name,
     pendingUdp,
     toastText,
+    toast,
     clock,
     globe,
     front,

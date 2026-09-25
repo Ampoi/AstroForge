@@ -2,7 +2,7 @@
 interface Session { [key:string]: string | number }
 interface TelemetryIdentity { [key:string]: unknown; version:number; observationSequence:number; universalTime:number }
 interface Flight extends TelemetryIdentity {liquidFuel:number;altitudeAgl:number;apoapsis:number;upBody:number[];eastBody:number[];angularVelocityBody:number[];landed:boolean}
-interface Actuator extends TelemetryIdentity {name:string;actuatorType:string;available:boolean;separated:boolean;flameout:boolean}
+export interface Actuator extends TelemetryIdentity {name:string;actuatorType:string;available:boolean;separated:boolean;flameout:boolean;maxThrust:number;thrust:number}
 interface Authority {state:number;leaseId:string}
 interface Telemetry extends TelemetryIdentity, Authority {type:string;available:boolean;warpRate:number;actuators:Actuator[];flight:Flight;engines:Actuator[];separations:Actuator[]}
 interface PendingSeparation {name:string;engines:string[];observation:number;started:number;lastSent:number;confirmedAt:number|null}
@@ -39,6 +39,7 @@ export class DemoController{
   guidanceState:{coasting?:boolean}={};command:ReturnType<typeof guidance>|null=null;elapsed=0;
   controller='';lease='';started=0;lastRenew=0;lastFlight=0;lastHeartbeat=0;requestedAt=0;startTime=0;
   socket:dgram.Socket|null=null;timer:ReturnType<typeof setInterval>|undefined;
+  pendingSends=new Map<dgram.Socket,number>();closingSockets=new Set<dgram.Socket>();
 
   constructor({commandPort=49011,telemetryPort=49010,host='127.0.0.1',duration=240}={}){this.commandPort=commandPort;this.telemetryPort=telemetryPort;this.host=host;this.duration=duration;this.running=false;this.phase='デモ待機中';this.port=null;this.resetFlight();}
   snapshot(){return {running:this.running,phase:this.phase,sent:this.sent,port:this.port,elapsed:this.elapsed||0,command:this.command||null,
@@ -95,7 +96,17 @@ export class DemoController{
   send(type: string,fields: Record<string,unknown>){
     if(!this.session||!this.socket)return;
     const packet={type,version:1,...this.session,controllerId:this.controller,leaseId:this.lease,sequence:++this.sequence,...fields};
-    this.socket.send(Buffer.from(JSON.stringify(packet)),this.commandPort,this.host,error=>{if(!error)this.sent++;});
+    const socket=this.socket;
+    this.pendingSends.set(socket,(this.pendingSends.get(socket)??0)+1);
+    socket.send(Buffer.from(JSON.stringify(packet)),this.commandPort,this.host,error=>{
+      if(!error)this.sent++;
+      const remaining=(this.pendingSends.get(socket)??1)-1;
+      if(remaining)this.pendingSends.set(socket,remaining);
+      else{
+        this.pendingSends.delete(socket);
+        if(this.closingSockets.delete(socket))socket.close();
+      }
+    });
   }
   leaseCommand(action: string){this.send('pylon_control_authority_command',{action,priority:1,leaseDurationSeconds:2,suppressSas:true});}
   event(text: string){this.events.push({elapsed:this.elapsed,text});}
@@ -153,9 +164,12 @@ export class DemoController{
     this.elapsed=this.flight!.universalTime-this.startTime;
     if(this.elapsed>=this.duration){this.stop('デモ完了 · 弾道飛行を継続');return;}
     const active=this.engines.map(id=>this.engineStates[id]).filter(p=>p.available===true);
+    this.drive(now,active);
+  }
+  drive(now: number,active: Actuator[]){
     if(this.stageTransition(now,active))return;
     if(!active.length){this.stop('使用できるエンジンがありません');return;}
-    if(this.separators.length&&active.every(p=>p.flameout)&&!this.flight.landed){
+    if(this.separators.length&&active.every(p=>p.flameout)&&!this.flight!.landed){
       // The manifest/snapshot preserves stack order, nose first: drop the bottom ring.
       const name=this.separators.at(-1)!;
       if(!this.separationStates[name]?.available){this.stop('分離機構を使用できません');return;}
@@ -164,7 +178,7 @@ export class DemoController{
       this.event(`第${this.stage}段 燃焼終了 · ${name} 切り離し指令`);
       this.stageTransition(now,active);return;
     }
-    const guidanceFlight=this.separators.length?{...this.flight,apoapsis:-Infinity}:this.flight;
+    const guidanceFlight=this.separators.length?{...this.flight!,apoapsis:-Infinity}:this.flight!;
     if(!this.separators.length&&active.every(p=>p.flameout))this.guidanceState.coasting=true;
     const previousThrust=this.command?.thrust||0;
     const c=this.command=guidance(guidanceFlight,this.elapsed,this.guidanceState,this.timeScale);this.phase=`第${this.stage}段 · ${c.phase}`;
@@ -182,7 +196,9 @@ export class DemoController{
       this.leaseCommand('release');
     }
     if(this.command)this.command={...this.command,thrust:0,rcs:false};
-    // close waits for pending datagrams; the commands also have a 400 ms watchdog.
-    this.socket?.close();this.socket=null;
+    // send() may still be resolving its destination. Wait for its callbacks so
+    // the final cutoff/release packets reach UDP before closing the socket.
+    const socket=this.socket;this.socket=null;
+    if(socket){if(this.pendingSends.has(socket))this.closingSockets.add(socket);else socket.close();}
   }
 }

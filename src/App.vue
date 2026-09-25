@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PartIcon from "./components/PartIcon.vue";
+import ManualDemo from "./components/ManualDemo.vue";
 import { PARTS } from "../shared/craft.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
@@ -75,6 +76,7 @@ const {
   toggleMarkers,
   openLibrary,
   movingIds,
+  toast,
 } = useWorkshop();
 const categories = [
   ["all", "すべて"],
@@ -315,6 +317,7 @@ function closeOnBackdrop(event: MouseEvent) {
           ＋ 新しい機体を作る
         </button>
       </div>
+      <ManualDemo v-if="flying && focused && !focused.passive" :key="focused.id" :vehicle="focused" :connected="connected" @error="toast" />
       <div id="flight-toolbar" class="flight-toolbar" :hidden="!flying">
         <div class="segmented">
           <button

@@ -59,6 +59,7 @@
 | `authority` | 機体固有の制御権。未割当はnull、OFFはstate:0 |
 | `received`, `accepted`, `rejected`, `sent`, `sendErrors` | この機体の通信件数 |
 | `lastCommand` | 最後の受信指令の結果。未受信はnull |
+| `demo` | 手動デモの状態。未開始はnull。[操作API](./http#post-api-manual-demo)を参照 |
 
 OFF中も割当済みポートは保持します。分離物はenabled:falseでポート未割当です。
 
