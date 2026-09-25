@@ -335,7 +335,7 @@ function closeOnBackdrop(event: MouseEvent) {
             :class="{ active: globe }"
             @click="setView(true)"
           >
-            地球全景
+            マップ
           </button>
         </div>
         <label class="time-scale-label"
@@ -474,7 +474,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span id="view-instructions">{{
           flying
             ? globe
-              ? "ドラッグで地球を回転 · スクロールで拡大・縮小"
+              ? "ドラッグで視点を回転 · スクロールで追跡中の機体を中心に拡大・縮小"
               : "カメラ操作のみ · 飛行制御はUDPから"
             : "パーツをドラッグして子ごと移動 · 空白をドラッグで回転"
         }}</span
@@ -817,7 +817,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>03</span>
         <p>
           <strong>UDPでフライトを制御する</strong
-          >次のコマンドを別ターミナルで実行すると点火・姿勢制御を行います。2段機体は燃料切れで下段を切り離し、上段を点火します。「地球全景」で飛行履歴と予測軌道を確認できます。
+          >次のコマンドを別ターミナルで実行すると点火・姿勢制御を行います。2段機体は燃料切れで下段を切り離し、上段を点火します。「マップ」で飛行履歴と予測軌道を確認できます。
         </p>
       </div>
     </div>

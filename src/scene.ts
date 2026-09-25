@@ -323,7 +323,7 @@ export class RocketScene{
       const direction=this.environment.position.clone().normalize().addScaledVector(this.environment.uniforms.sunDirection.value,.65).normalize();
       const screen=this.element.clientHeight||650,area=Math.max(220,screen-310),fill=Math.min(area/screen,this.camera.aspect*.78);
       const distance=10.6/Math.sin(Math.atan(Math.tan(this.camera.fov*Math.PI/360)*fill));
-      this.controls.target.set(0,0,0);this.camera.position.copy(direction.multiplyScalar(Math.min(130,distance)));this.controls.update();return;
+      this.controls.target.copy(this.environment.position).multiplyScalar(10.002);this.camera.position.copy(this.controls.target).add(direction.multiplyScalar(Math.min(130,distance)));this.controls.update();return;
     }
     if(this.mode==='editor'){
       const bounds=new THREE.Box3();for(const group of this.groups.values())bounds.expandByObject(group);
@@ -347,6 +347,13 @@ export class RocketScene{
     this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));this.controls.update();
   }
   zoom(factor: number){this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);this.controls.update();}
+  updateMapTarget(){
+    if(!this.globe)return;
+    // Match the map marker and preserve the user's viewing direction and zoom.
+    const target=this.environment.position.clone().multiplyScalar(10.002);
+    this.globeCamera.position.add(target.clone().sub(this.globeControls.target));
+    this.globeControls.target.copy(target);
+  }
   updateFlight(f: FlightSnapshot,trail: number[][]){
     if(this.mode!=='flight')return;
     this.currentFlight=f;this.environment.update(f,trail);
@@ -452,6 +459,7 @@ export class RocketScene{
     // Keep camera damping consistent when switching between 30 Hz and high-refresh screens.
     this.controls.dampingFactor=1-Math.pow(.92,delta*60);
     if(this.mode==='flight'){const flight=this.flightMotion.sample(now);if(flight)this.renderFlight(flight,now);}
+    this.updateMapTarget();
     this.controls.update();this.selectionBox?.update();this.renderer.clear();
     const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}
