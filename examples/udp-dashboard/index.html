@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UDP Command Desk</title><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
+<body>
+<header><div><span class="eyebrow">STANDALONE · PYLoN v1</span><h1>UDP Command Desk<span>通信を、そのまま操作する。</span></h1></div><div class="badge" id="connection-state">未接続</div></header>
+<main>
+<section class="connection panel">
+  <div class="heading"><h2>01 <span>送受信ポート</span></h2><span id="counts">TX 0 / RX 0</span></div>
+  <form id="connect-form" class="connection-fields">
+    <label>送信先ホスト<input id="host" value="127.0.0.1" required></label>
+    <label>コマンド送信先<input id="command-port" type="number" min="1" max="65535" value="49011" required></label>
+    <label>テレメトリ受信ポート<input id="telemetry-port" type="number" min="1" max="65535" value="49010" required></label>
+    <button type="submit" class="primary">UDP接続を開く</button><button type="button" id="disconnect">切断</button>
+    <label class="check"><input type="checkbox" id="renew-lease" checked>取得した制御権を0.5秒ごとに更新</label>
+  </form>
+  <p class="note">本体とは別プロセスのUDPクライアントです。対象名・数値を指定して送信します。機体構成の判定や自動操縦は行いません。</p>
+</section>
+<div id="feedback" role="status">接続先のUDPを有効にし、ポート番号を入力してください。</div>
+<div class="workspace">
+<div class="controls">
+<section class="panel">
+  <div class="heading"><h2>02 <span>セッション・制御権</span></h2><span id="session-state">セッション未受信</span></div>
+  <div class="authority-fields"><label>優先度<input id="priority" type="number" value="1" step="1"></label><label class="check"><input id="suppress-sas" type="checkbox">suppressSas</label></div>
+  <div class="buttons"><button data-authority="acquire" class="primary">制御権を取得</button><button data-authority="renew">更新</button><button data-authority="release">解放</button><button data-authority="emergency_stop" class="danger">緊急停止</button><button data-authority="clear_emergency_stop">緊急停止解除</button></div>
+  <p class="note" id="authority-state">取得操作では点火しません。</p>
+  <details><summary>セッションJSONを直接設定</summary><p class="note">UDP受信で自動入力されます。受信がない環境でも共通情報5項目を手動設定できます。</p><textarea id="session-json" aria-label="セッションJSON" rows="5" spellcheck="false" placeholder='{"runtimeInstance":"…","runtimeGeneration":1,"runtimeEpoch":"…","runtimeVesselId":"…","vesselId":"…"}'></textarea><button id="set-session">セッションを設定</button><button id="copy-session">受信セッションを入力欄へ</button></details>
+</section>
+<section class="panel">
+  <div class="heading"><h2>03 <span>指令を送る</span></h2><span>JSON → UDP</span></div>
+  <div class="tabs" role="tablist" aria-label="指令の種類">
+    <button role="tab" aria-selected="true" data-tab="engine">エンジン</button><button role="tab" aria-selected="false" data-tab="separation">切り離し</button><button role="tab" aria-selected="false" data-tab="flight">姿勢入力</button><button role="tab" aria-selected="false" data-tab="rcs">RCS</button><button role="tab" aria-selected="false" data-tab="wrench">力・トルク</button>
+  </div>
+  <form id="command-form">
+    <div data-pane="engine" role="tabpanel" aria-label="エンジン">
+      <label>エンジンのname<input id="engine-name" list="engine-names" placeholder="任意の対象名を入力" autocomplete="off"></label><datalist id="engine-names"></datalist>
+      <div class="range-heading"><label for="thrust">要求推力</label><output id="thrust-value">0 N</output></div>
+      <input id="thrust" type="range" min="0" max="100000" step="100" value="0" aria-label="要求推力">
+      <div class="split"><label>数値入力（N）<input id="thrust-number" type="number" min="0" max="100000000" value="0"></label><label>スライダー上限（N）<input id="thrust-max" type="number" min="1" max="100000000" value="100000"></label></div>
+      <label class="check"><input id="live-thrust" type="checkbox" checked>スライダー変更時に送信</label>
+    </div>
+    <div data-pane="separation" role="tabpanel" aria-label="切り離し" hidden>
+      <label>分離機構のname<input id="separation-name" list="separation-names" placeholder="切り離す対象名を入力" autocomplete="off"></label><datalist id="separation-names"></datalist>
+      <p class="note">指定したnameへseparate:trueを1回送ります。段の順番は推測せず、他の対象への指令も追加しません。</p>
+    </div>
+    <div data-pane="flight" role="tabpanel" aria-label="姿勢入力" hidden>
+      <label>Pitch <output id="pitch-value">0</output><input id="pitch" type="range" min="-1" max="1" step="0.01" value="0"></label>
+      <label>Yaw <output id="yaw-value">0</output><input id="yaw" type="range" min="-1" max="1" step="0.01" value="0"></label>
+      <label>Roll <output id="roll-value">0</output><input id="roll" type="range" min="-1" max="1" step="0.01" value="0"></label>
+      <p class="note">指定値を直接送信します。自動姿勢保持は行いません。</p>
+    </div>
+    <div data-pane="rcs" role="tabpanel" aria-label="RCS" hidden>
+      <label>RCSのname<input id="rcs-name" list="rcs-names" placeholder="任意の対象名を入力" autocomplete="off"></label><datalist id="rcs-names"></datalist>
+      <label>thrustLimit（N）<input id="rcs-thrust" type="number" min="0" max="100000000" value="250"></label><label class="check"><input id="rcs-enabled" type="checkbox" checked>enabled</label>
+    </div>
+    <div data-pane="wrench" role="tabpanel" aria-label="力・トルク" hidden>
+      <div class="triplet"><label>Force X（N）<input id="fx" type="number" value="0"></label><label>Y<input id="fy" type="number" value="0"></label><label>Z<input id="fz" type="number" value="0"></label></div>
+      <div class="triplet"><label>Torque X（N·m）<input id="tx" type="number" value="0"></label><label>Y<input id="ty" type="number" value="0"></label><label>Z<input id="tz" type="number" value="0"></label></div>
+      <p class="note">frame: base_link。要求値をそのまま送信します。</p>
+    </div>
+    <div class="send-options"><label>指令の期限（秒）<input id="timeout" type="number" min="0.05" max="10" step="0.05" value="0.4"></label><label class="check"><input id="repeat" type="checkbox">20 Hzで連続送信</label></div>
+    <div class="buttons"><button type="submit" class="primary" id="send-command">UDP指令を送信</button><button type="button" id="engine-off">指定エンジンへ停止指令</button><button type="button" id="stop-repeat">連続送信を停止</button></div>
+    <p class="note" id="repeat-state">連続送信なし。1回送信した指令は指定期限で失効します。</p>
+  </form>
+  <details open><summary>送信するパケット</summary><pre id="preview"></pre></details>
+</section>
+<section class="panel"><div class="heading"><h2>04 <span>任意のJSON</span></h2><span>RAW DATAGRAM</span></div><p class="note">共通情報も含め、入力したJSONをそのまま1回送信します。セッション・manifestがなくても送信できます。</p><textarea id="raw-json" aria-label="任意のUDP JSON" rows="8" spellcheck="false">{"type":"your_command"}</textarea><div class="buttons"><button id="load-preview">上のパケットを読み込む</button><button id="send-raw" class="primary">JSONをそのまま送信</button></div></section>
+</div>
+<aside>
+<section class="panel"><div class="heading"><h2>通信ログ</h2><span>直近40件</span></div><p class="note">TXはUDP送信完了。指令の受理・拒否はRXのreasonを確認してください。</p><div id="wire-log" class="wire-log"></div></section>
+<section class="panel"><div class="heading"><h2>受信テレメトリ</h2></div><label>パケット<select id="telemetry-type"><option value="">未受信</option></select></label><pre id="telemetry-json">{}</pre><p class="note">manifestは名前の候補にだけ使用します。対象名は自由に入力できます。</p></section>
+</aside>
+</div>
+<footer>UDP Command Desk · 本体への接続はUDPのみ · 画面との接続が3秒途絶えると連続送信を停止し、取得した制御権を解放します。</footer>
+</main>
+</body></html>

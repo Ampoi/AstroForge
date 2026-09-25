@@ -8,8 +8,8 @@ export default defineConfig({
     nav:[{text:'はじめる',link:'/guide'},{text:'UDPで制御する',link:'/protocol'},{text:'貢献',link:'/contributing'}],
     socialLinks:[{icon:'github',link:'https://github.com/Ampoi/AstroForge',ariaLabel:'AstroForgeのGitHubリポジトリ'}],
     sidebar:[
-      {text:'はじめに',items:[{text:'概要',link:'/'},{text:'クイックスタート',link:'/guide'}]},
-      {text:'UDPで制御する',items:[{text:'Python SDK',link:'/python-sdk'},{text:'接続と通信の流れ',link:'/protocol'},{text:'送るコマンドと機体の挙動',link:'/udp/commands'},{text:'受け取るテレメトリ',link:'/udp/telemetry'}]},
+      {text:'はじめに',items:[{text:'概要',link:'/'},{text:'クイックスタート',link:'/guide'},{text:'ローバー',link:'/rover'},{text:'センサー・可動機構・ROS2',link:'/systems'}]},
+      {text:'UDPで制御する',items:[{text:'Python SDK',link:'/python-sdk'},{text:'接続と通信の流れ',link:'/protocol'},{text:'送るコマンドと機体の挙動',link:'/udp/commands'},{text:'受け取るテレメトリ',link:'/udp/telemetry'},{text:'座標・高度の読み方',link:'/udp/coordinates'}]},
       {text:'さらに使いこなす',items:[{text:'複数機体・衝突・時間倍率',link:'/simulation'},{text:'HTTP / SSE',link:'/api/http'},{text:'機体とフライト状態',link:'/api/schema'}]},
       {text:'貢献',items:[{text:'開発・ビルド・コード構成',link:'/contributing'},{text:'Zig物理カーネル',link:'/physics-kernel'}]}
     ],

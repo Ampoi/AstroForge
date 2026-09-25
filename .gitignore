@@ -10,3 +10,7 @@ docs/.vitepress/dist/
 build/
 .zig-cache/
 dist/
+
+# Local ROS2 workspace products
+install/
+log/

@@ -8,6 +8,7 @@
     "node": ">=22.12"
   },
   "scripts": {
+    "build:weather": "node --import tsx scripts/build-weather.ts",
     "build:physics": "node --import tsx scripts/build-physics.ts",
     "prestart": "npm run build",
     "predev": "npm run build:physics && npm run docs:build",
@@ -26,7 +27,8 @@
     "docs:preview": "vitepress preview docs",
     "typecheck": "vue-tsc --noEmit",
     "build:ui": "vite build",
-    "build": "npm run typecheck && npm run build:physics && npm run build:ui && npm run docs:build"
+    "build": "npm run typecheck && npm run build:physics && npm run build:ui && npm run docs:build",
+    "demo:dashboard": "node --import tsx examples/udp-dashboard/server.ts"
   },
   "dependencies": {
     "three": "0.180.0",

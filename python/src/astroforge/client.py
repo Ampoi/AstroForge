@@ -390,8 +390,8 @@ class Client:
                 raise ValueError("invalid manifest")
             for member in members:
                 identifier(member.get("name"))
-                if member.get("actuatorType") not in {"engine", "rcs", "separation"}:
-                    raise ValueError("invalid manifest type")
+                # Preserve new actuator types without losing the known engines in a mixed craft.
+                identifier(member.get("actuatorType"))
         elif kind == "pylon_imu":
             vector(packet.get("angularVelocity"), -1e100, 1e100, "angularVelocity")
             vector(packet.get("linearAcceleration"), -1e100, 1e100, "linearAcceleration")

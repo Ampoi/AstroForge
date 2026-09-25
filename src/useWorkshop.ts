@@ -11,6 +11,8 @@ import {
   PARTS,
   starterCraft,
   twoStageCraft,
+  roverCraft,
+  isRover,
   validateCraft,
   craftStats,
   launchIssues,
@@ -35,8 +37,11 @@ import type {
   PartType,
 } from "../shared/types.ts";
 import type { AppState, ApiRoutes, UdpState } from "../shared/api.ts";
+import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
+import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
+import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
 export const num = (value: number | null | undefined, digits = 0) =>
   typeof value === "number" && Number.isFinite(value)
@@ -71,6 +76,7 @@ export async function api<K extends keyof ApiRoutes>(
   return result as ApiRoutes[K]["output"];
 }
 export function useWorkshop() {
+  const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
     craftDialog = ref<HTMLDialogElement>(),
@@ -117,14 +123,14 @@ export function useWorkshop() {
       : ["最初のルートパーツを配置してください"],
   );
   const warning = computed(
-    () => !!issues.value.length || stats.value.stability < 0,
+    () => !!issues.value.length || (!isRover(active.value) && stats.value.stability < 0),
   );
   const validation = computed(() =>
     issues.value.length
       ? "△ " + issues.value[0]
-      : stats.value.stability < 0
+      : (!isRover(active.value) && stats.value.stability < 0)
         ? "△ 空力中心が重心より前方です。翼を下方に追加すると安定します。"
-        : `✓ 発射準備OK · 静安定余裕 ${num(stats.value.stability, 1)} 口径（概算）`,
+        : isRover(active.value) ? "✓ 走行準備OK · 車輪ごとにUDPで駆動・操舵・制動" : `✓ 発射準備OK · 静安定余裕 ${num(stats.value.stability, 1)} 口径（概算）`,
   );
   const attached = computed(() => connectedIds(craft.value));
   const palette = computed(
@@ -174,7 +180,7 @@ export function useWorkshop() {
   );
   const subtitle = computed(() =>
     flying.value
-      ? `${focused.value ? phase[focused.value.status] : ""} · 飛行制御はUDPから`
+      ? `${focused.value?.wheels.length ? "地表走行" : focused.value ? phase[focused.value.status] : ""} · 制御はUDPから`
       : craft.value.rootId
         ? `接続 ${active.value.parts.length} 個 · 未接続 ${loose.value} 個 · 子パーツごとドラッグ`
         : "最初のパーツを配置してルートを作成",
@@ -186,14 +192,22 @@ export function useWorkshop() {
         ? "◆ ルートを配置 · 子パーツも一緒に移動"
         : placement.value?.kind === "free"
           ? "未接続 · 半透明のパーツは機体に含まれません · Escで取消"
+          : placement.value?.kind === "stack"
+            ? stackHint(placement.value)
           : placement.value?.snapped
             ? "⌖ 接続点にスナップ · 離して接続"
             : placement.value?.kind === "surface"
               ? "側面に取り付け · 離して確定"
               : placement.value === null
                 ? "この位置には配置できません"
-                : "パーツを配置 · 接続点へ近づけてスナップ · Escで取消",
+                : "パーツを配置 · 断面を近づけて重ねるとスナップ · Escで取消",
   );
+  function stackHint(value: Extract<AssemblyPlacement,{kind:'stack'}>) {
+    const target=craft.value.parts.find(p=>p.id===value.parent),type=scene?.placing;
+    if(!target||!type)return '⌖ 断面にスナップ · 離して接続';
+    const face=attachmentFace(target.type,value.side)!,incoming=attachmentFace(type,-value.side)!;
+    return `⌖ ${faceLabel(face)} · ${matchingFaces(face,incoming)?'同じ規格':'異径接続OK'} · 離して接続`;
+  }
   function toast(message: string) {
     toastText.value = message;
     clearTimeout(toastTimer);
@@ -225,6 +239,7 @@ export function useWorkshop() {
     return true;
   }
   function beginPart(type: PartType) {
+    if(type === "wheel" && symmetry.value > 2)setSymmetry(2);
     if (canPlace(type))
       scene?.setPlacement(type, {
         count: symmetry.value,
@@ -395,7 +410,7 @@ export function useWorkshop() {
     try {
       const state = await api("/api/editor", id ? { libraryId: id } : {});
       libraryId.value =
-        id && !["starter", "two-stage"].includes(id) ? id : null;
+        id && !["starter", "two-stage", "rover"].includes(id) ? id : null;
       history.value = [];
       dirty.value = false;
       applyState(state);
@@ -424,7 +439,7 @@ export function useWorkshop() {
       focusId.value = state.activeVehicleId;
       applyState(state);
       window.scrollTo({ top: 0, behavior: "smooth" });
-      toast("発射台に配置しました。機体一覧でUDPをONにすると接続できます");
+      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
     } catch (error) {
       toast(errorMessage(error));
     }
@@ -438,7 +453,7 @@ export function useWorkshop() {
       applyState(state);
       scene?.fit();
       craftDialog.value?.close();
-      toast("発射台に配置しました。機体一覧でUDPをONにすると接続できます");
+      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
     } catch (error) {
       toast(errorMessage(error));
     }
@@ -475,14 +490,14 @@ export function useWorkshop() {
     selected.value = null;
     changed();
   }
-  function reset(kind: "starter" | "two-stage" | "empty") {
+  function reset(kind: "starter" | "two-stage" | "rover" | "empty") {
     stash();
     cancelPlacement();
     libraryId.value = null;
     craft.value =
       kind === "empty"
         ? emptyAssembly()
-        : toAssembly(kind === "starter" ? starterCraft() : twoStageCraft());
+        : toAssembly(kind === "starter" ? starterCraft() : kind === "rover" ? roverCraft() : twoStageCraft());
     selected.value = null;
     changed();
     scene?.fit();
@@ -541,6 +556,12 @@ export function useWorkshop() {
   function setView(value: boolean) {
     globe.value = value;
     scene?.setView(value);
+  }
+  function setDisplayRate(event: Event) {
+    displayRate.value = frameRate((event.target as HTMLSelectElement).value);
+    scene?.setFrameRate(displayRate.value);
+    renderFps.value = 0;
+    try { localStorage.setItem('astroforge-frame-rate', displayRate.value); } catch {}
   }
   function fit(value = false) {
     front.value = value;
@@ -617,6 +638,7 @@ export function useWorkshop() {
     { immediate: true },
   );
   onMounted(() => {
+    try { displayRate.value = frameRate(localStorage.getItem('astroforge-frame-rate')); } catch {}
     try {
       scene = new RocketScene(
         sceneElement.value!,
@@ -627,21 +649,29 @@ export function useWorkshop() {
           preview.value = draft ?? null;
         },
       );
+      scene.setFrameRate(displayRate.value);
     } catch (error) {
       sceneError.value = true;
       console.error(error);
     }
-    stream = new EventSource("/api/events");
+    const decoder = new StateStreamDecoder();
+    stream = new EventSource("/api/events?compact=1");
+    stream.addEventListener('configuration', event => {
+      decoder.configuration = JSON.parse((event as MessageEvent).data);
+    });
     stream.onopen = () => (connected.value = true);
     stream.onerror = () => (connected.value = false);
     stream.onmessage = (event) => {
       try {
-        applyState(JSON.parse(event.data) as AppState);
+        applyState(decoder.decode(JSON.parse(event.data) as StreamFrame));
       } catch (error) {
         console.error(error);
       }
     };
-    clockTimer = setInterval(() => (clock.value = new Date()), 1000);
+    clockTimer = setInterval(() => {
+      clock.value = new Date();
+      renderFps.value = scene?.fps ?? 0;
+    }, 1000);
     document.addEventListener("keydown", keydown);
   });
   onUnmounted(() => {
@@ -653,6 +683,10 @@ export function useWorkshop() {
     document.body.classList.remove("flight-mode");
   });
   return {
+    displayRate,
+    renderFps,
+    frameRates,
+    setDisplayRate,
     sceneElement,
     helpDialog,
     craftDialog,
@@ -670,7 +704,6 @@ export function useWorkshop() {
     name,
     pendingUdp,
     toastText,
-    toast,
     clock,
     globe,
     front,

@@ -268,6 +268,18 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ControlLost):
             self.client.acquire_control()
 
+    def test_manifest_preserves_new_types_without_losing_engines(self):
+        members = [dict(name='engine', actuatorType='engine'),
+                   dict(name='wheel', actuatorType='wheel'),
+                   dict(name='motor', actuatorType='motor'),
+                   dict(name='future', actuatorType='future_actuator')]
+        with self.peer.lock:
+            self.peer.send(self.peer.packet('pylon_actuator_manifest', actuators=members))
+        deadline = time.monotonic() + 1
+        while self.client.latest('pylon_actuator_manifest') is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.client.latest('pylon_actuator_manifest').data['actuators'], members)
+
     def test_socket_failure_wakes_waiters(self):
         self.client._socket.close()
         with self.assertRaises(ConnectionError):

@@ -76,7 +76,7 @@ class Snapshot:
 @dataclass(frozen=True)
 class ConnectionState:
     connected: bool
-    available: bool
+    available: bool  # Session availability, not a guarantee that control can be acquired.
     controlling: bool
     heartbeat_age: float | None
     snapshot_age: float | None

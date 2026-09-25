@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import socket
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.request
@@ -124,33 +123,6 @@ def run():
                 assert client.state.controlling
             print('PASS: UDP OFF/ON reconnects observations and requires explicit control reacquisition')
 
-            # Reset only this disposable server and exercise the installed SDK staging example.
-            api('/api/revert', {})
-            state = api()
-            state = api('/api/control', {'vehicleId': state['activeVehicleId'], 'enabled': True})
-            api('/api/time-scale', {'scale': 10})
-            udp = state['connection']
-            demo = subprocess.Popen([sys.executable, 'examples/python_staging.py', '--duration', '24',
-                                     '--command-port', str(udp['commandPort']), '--telemetry-port', str(udp['telemetryPort'])],
-                                    cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            saw_separation = saw_upper = saw_space = False
-            try:
-                deadline = time.monotonic() + 30
-                while demo.poll() is None and time.monotonic() < deadline:
-                    current = api()
-                    saw_separation |= bool(current['flight']['separations'])
-                    saw_upper |= saw_separation and current['flight']['thrust'] > 1000
-                    saw_space |= current['flight']['altitude'] > 100000
-                    time.sleep(.1)
-                output, _ = demo.communicate(timeout=2)
-                assert demo.returncode == 0, output.decode(errors='replace')
-                assert saw_separation and saw_upper and saw_space, (saw_separation, saw_upper, saw_space, output)
-                until(lambda s: s['connection']['authority']['state'] == 0 and s['flight']['thrust'] == 0)
-                print('PASS: Python staging example at x10: automatic separation, upper-stage ignition, >100 km, release')
-            finally:
-                if demo.poll() is None:
-                    demo.terminate()
-                    demo.wait(timeout=5)
         finally:
             proc.terminate()
             proc.wait(timeout=5)

@@ -34,3 +34,6 @@ if(current&&!process.argv.includes('--force')){
   writeFileSync(stamp,`${sourceHash}\n${hash(bytes)}\n`);
   console.log(`Built physics with Zig ${version} (${bytes.length} bytes, ReleaseSafe / f64).`);
 }
+
+// Build the browser kernel alongside the server kernel for every standard build.
+await import('./build-exhaust.ts');

@@ -1,6 +1,8 @@
 # Python SDK
 
-Pythonから接続・観測・操縦するためのUDP専用SDKです。session、sequence、lease更新を管理し、既存のPyLoN v1コマンド一式を扱います。Python 3.11以上、追加の実行時依存はありません。GUIは含みません。
+Pythonから接続・観測・操縦するためのUDP専用SDKです。session、sequence、lease更新を管理し、PyLoN v1のエンジン・姿勢・RCS・段分離・wrench・batch・制御権を扱います。Python 3.11以上、追加の実行時依存はありません。GUIは含みません。
+
+wheel・motor・dockingの指令、センサー画像・点群の再構築、分離結果journalの問い合わせは未対応です。manifestには未知のアクチュエータ種別も保持しますが、その専用指令や状態の型付けは提供しません。`latest()`で扱える観測はsession、flight、ground truth、IMU、vehicle health、actuator manifest/state（engine/rcs/separation）、authority、control snapshot、wrench statusです。それ以外のパケットは無視します。
 
 ## インストール
 
@@ -9,7 +11,6 @@ Pythonから接続・観測・操縦するためのUDP専用SDKです。session�
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ./python
-.\.venv\Scripts\python.exe examples/python_receive.py
 ```
 
 macOS / Linuxでは `.venv/bin/python` を使います。
@@ -17,7 +18,6 @@ macOS / Linuxでは `.venv/bin/python` を使います。
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -e ./python
-.venv/bin/python examples/python_receive.py
 ```
 
 配布パッケージ名は `astroforge-sdk`、import名は `astroforge` です。PyPIには公開していないため、上のローカルパスからインストールしてください。シミュレーターは別ターミナルで起動します。同じ機体の手動デモ・Node.jsデモ・別の受信プログラムは終了してください。テレメトリの受信ポートは1クライアントが占有します。
@@ -43,7 +43,7 @@ with Client(command_port=49011, telemetry_port=49010) as rocket:
 - `imu`：型付き `Observation[Imu]`、未受信ならNone。
 - `latest("pylon_actuator_manifest")`：パケット種別ごとの最新 `Observation`。
 - `latest("pylon_actuator_state", name="engine_1")`：部品ごとの状態。
-- `state`：接続・制御可能性・制御権所有・heartbeat/snapshotの経過秒・エラー。
+- `state`：接続・sessionのavailable・制御権所有・heartbeat/snapshotの経過秒・エラー。availableは操縦可能の保証ではありません（着陸後などは観測できても制御権を取得できません）。
 
 `Observation.data`は受信フィールドの辞書です。`sequence`、`simulation_time`、`received_at`とセッションを一緒に保持します。取得データはコピーなので、利用者の書き換えは受信状態へ影響しません。
 
@@ -110,19 +110,15 @@ batchのエンジンは最大16件、重複不可。RCSとwrenchはbatchに含�
 
 回復可能な例外後は `wait_until_ready()` で新鮮な観測を待ち、エラーを確認済みにできます。これは受信専用にも使えます。**操縦は自動再開しません**。再開する場合は明示的に `acquire_control()` を呼び、観測から現在の機体・エンジンを再選択してください。致命的なソケットエラー後はClientを閉じて作り直します。
 
-## サンプルと検証
+## 検証
+
+このSDKはROS2に依存しません。上記はライブラリのAPI使用例で、飛行ミッションのデモではありません。リポジトリの実行用デモはROS2 bridge経由に統一する規約があるため、このSDK追加では既存デモを変更せず、新規の自動操縦デモも追加しません。
 
 ```powershell
-# 受信だけ（指令なし）
-.\.venv\Scripts\python.exe examples/python_receive.py
-# 基本操縦。従来のhost/port/duration/turn引数を維持
-.\.venv\Scripts\python.exe examples/launch.py --duration 20 --turn 0
-# 初期2段機体：燃料切れ→分離確認→0.8シミュレーション秒待機→上段点火
-.\.venv\Scripts\python.exe examples/python_staging.py --duration 240
 # SDKの障害・通信試験
 .\.venv\Scripts\python.exe -m unittest discover -s python/tests -v
 # 専用サーバー・保存先・ポートを自動生成する実UDP試験（物理Wasmのビルドが必要）
 .\.venv\Scripts\python.exe python/tests/integration.py
 ```
 
-2段サンプルは予測遠地点160 kmで推力を切り、その後は再点火しません。分離未確認なら上段を点火せず終了します。物理精度や多様な自作機体での飛行成功を保証するものではありません。
+統合試験だけが専用サーバーの準備・状態検証にHTTPを利用します。SDK本体の通信はUDPのみです。これらはホスト上のPython SDK試験であり、ROS2 / SpaceROSの検証ではありません。

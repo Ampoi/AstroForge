@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- Run the Vite dev server, then open /tests/environment.html. Check below, inside and
+above the cloud shell, the solar disc, orbital occlusion, and editor lighting restore.
+The harness uses the production renderer without starting the physics/UDP server. -->
+<html lang="en"><meta charset="UTF-8"><title>AstroForge atmosphere rendering checks</title>
+<style>body{margin:0;background:#07101a;color:white;font:14px system-ui}#scene{height:calc(100vh - 54px)}nav{height:54px;display:flex;align-items:center;gap:10px;padding:0 16px}button{padding:7px 12px}#status{margin-left:auto}</style>
+<nav><strong>Atmosphere checks</strong><button>Ground</button><button>Sun</button><button>Cloud layer</button><button>Middle clouds</button><button>High clouds</button><button>Above clouds</button><button>Orbit</button><button>Night</button><button>Editor</button><span id="status">Loading</span></nav><div id="scene"></div>
+<script type="module">
+import * as THREE from 'three';
+import {RocketScene} from '../src/scene.ts';
+import {starterCraft} from '../shared/craft.ts';
+import {EARTH_RADIUS,EARTH_SPIN} from '../src/celestial.ts';
+const scene=new RocketScene(document.querySelector('#scene'),()=>{},()=>{});
+scene.setCraft(starterCraft());
+await scene.environment.ready;
+let current='Ground';
+function view(name){
+  current=name;scene.setMode(name==='Editor'?'editor':'flight');
+  if(name==='Editor'){scene.fit();return;}
+  const altitude=({'Cloud layer':1800,'Middle clouds':5000,'High clouds':9000,'Above clouds':12000,Orbit:400000})[name]||0;
+  const env=scene.environment;
+  env.position.set(0,1+altitude/EARTH_RADIUS,0);env.sun.update(name==='Night'?Math.PI/EARTH_SPIN:0);
+  env.uniforms.sunDirection.value.copy(env.sun.position).normalize();
+  scene.ground.position.set(0,-altitude,0);scene.ground.visible=altitude<50000;
+  scene.scene.fog.density=.00012*Math.exp(-altitude/8000);
+  if(name==='Orbit'){
+    const old=env.trail.geometry;
+    env.trail.geometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-16,-2,0),new THREE.Vector3(16,-2,0)]);old.dispose();env.trail.visible=true;
+    env.marker.position.copy(env.position).multiplyScalar(10.002);
+    scene.setView(true);return;
+  }
+  scene.followControls.maxPolarAngle=Math.PI;
+  scene.followControls.target.set(0,4,0);
+  const sunDirection=env.sun.directionFrom(env.position);
+  // Frame the real solar bearing above the vehicle; orbit controls remain usable.
+  scene.camera.position.set(60,8,70);
+  scene.controls.target.copy(scene.camera.position).addScaledVector(sunDirection,100);
+  if(name==='Ground'||name==='Night')scene.fit();
+  if(name==='Above clouds')scene.controls.target.set(-4000,-1200,-5000);
+  scene.controls.update();
+}
+for(const b of document.querySelectorAll('button'))b.onclick=()=>view(b.textContent);
+view('Ground');
+setInterval(()=>{
+  const programs=scene.renderer.info.programs||[];
+  const valid=programs.length&&programs.every(p=>p.diagnostics?.runnable!==false);
+  document.querySelector('#status').textContent=`${current} · ${scene.fps} fps · shaders ${valid?'OK':'FAILED'}`;
+},1000);
+window.addEventListener('pagehide',()=>scene.dispose());
+</script></html>

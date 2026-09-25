@@ -1,6 +1,6 @@
 /** Shared domain contracts. Distances are metres, masses kg and angles radians. */
 export type PartType =
-  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar";
+  "pod" | "tank" | "engine" | "booster_engine" | "vacuum_engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel" | "lidar2d" | "lidar3d" | "camera" | "startracker" | "servo" | "linear" | "docking";
 export interface PartDefinition {
   name: string;
   label: string;
@@ -10,6 +10,8 @@ export interface PartDefinition {
   height: number;
   color: string;
   radial?: boolean;
+  width?: number;
+  depth?: number;
   power?: number;
   wheelTorque?: number;
   fuel?: number;
@@ -47,6 +49,7 @@ export interface Assembly {
 }
 export type Design = Craft | Assembly;
 export interface LayoutPart extends AssemblyPart {
+  rotation?: number[];
   def: PartDefinition;
   connected?: boolean;
 }
@@ -145,4 +148,13 @@ export interface WrenchCommand extends ForceTorque {
 export interface LibraryEntry {
   id: string;
   craft: Craft;
+}
+
+export interface WheelCommand {
+  enabled: boolean; expires: number; targetAngularVelocity: number; steeringAngle: number; maxDriveTorque: number; brake: number;
+}
+export interface WheelState {
+  id: string; grounded: boolean; compression: number; normalForce: number;
+  steering: number; rotation: number; speed: number; motorForce: number;
+  driveTorque: number; brakeTorque: number; slip: number; maxDriveTorque: number;
 }
