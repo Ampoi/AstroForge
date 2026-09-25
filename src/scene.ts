@@ -9,6 +9,7 @@ import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {makeLaunchSite} from './launch-site.ts';
+import {VabEnvironment, setVabLighting} from './vab.ts';
 import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} from './exhaust.ts';
 import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
@@ -113,7 +114,7 @@ export class RocketScene{
   renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
   controls: OrbitControls; followControls: OrbitControls; globeControls: OrbitControls;
   ground: THREE.Group; editorGround: THREE.Group; launchSite: THREE.Group; grid: THREE.GridHelper;
-  hangar: THREE.Group; rocket: THREE.Group; markers: THREE.Group; snapGroup: THREE.Group; preview: THREE.Group;
+  hangar: VabEnvironment; rocket: THREE.Group; markers: THREE.Group; snapGroup: THREE.Group; preview: THREE.Group;
   placementOptions={count:4,mirror:false,snap:true}; debrisGroups=new Map<string,THREE.Group>();
   raycaster: THREE.Raycaster; pointer: THREE.Vector2; down: {x:number;y:number} | null=null;
   moving: LayoutPart | null=null; dragPlane: THREE.Plane | null=null; grabOffset: THREE.Vector3 | null=null;
@@ -138,13 +139,9 @@ export class RocketScene{
     const key=new THREE.DirectionalLight('#ffedda',4);key.position.set(8,18,12);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-12;key.shadow.camera.right=12;key.shadow.camera.top=15;key.shadow.camera.bottom=-12;key.shadow.normalBias=.035;this.scene.add(key);
     const rim=new THREE.DirectionalLight('#6cb8e3',2.5);rim.position.set(-10,10,-10);this.scene.add(rim);
     this.ground=new THREE.Group();this.scene.add(this.ground);
-    const floor=new THREE.Mesh(new THREE.PlaneGeometry(400,400),material('#1a2b33',.2,.9));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;put(this.ground,floor,0,-.025,0);floor.castShadow=false;
-    this.grid=new THREE.GridHelper(160,80,'#416070','#2a414e');this.grid.material.transparent=true;this.grid.material.opacity=.38;this.ground.add(this.grid);
-    const platform=cyl(3.4,3.5,.13,'#2a414b',.55);put(this.ground,platform,0,-.03,0);
-    const ring=new THREE.Mesh(new THREE.RingGeometry(3.1,3.12,128),new THREE.MeshBasicMaterial({color:'#719094',transparent:true,opacity:.5,side:THREE.DoubleSide}));ring.rotation.x=-Math.PI/2;put(this.ground,ring,0,.045,0);
-    for(let i=0;i<16;i++){const a=i*Math.PI/8,m=box(.04,.003,i%4===0?.28:.12,'#75908e');m.position.set(Math.cos(a)*3.26,.04,Math.sin(a)*3.26);m.rotation.y=-a+Math.PI/2;this.ground.add(m);}
-    this.hangar=new THREE.Group();this.ground.add(this.hangar);
-    for(const x of [-35,35])for(const z of [-30,30]){const beam=box(.5,35,.5,'#2b424f');put(this.hangar,beam,x,17,z);}
+    this.hangar=new VabEnvironment();this.ground.add(this.hangar);
+    this.grid=new THREE.GridHelper(44,44,'#78908f','#52666b');this.grid.position.y=.02;this.grid.material.transparent=true;this.grid.material.opacity=.15;this.ground.add(this.grid);
+    setVabLighting(this.scene,true);
     this.editorGround=this.ground;this.launchSite=makeLaunchSite();this.launchSite.visible=false;this.scene.add(this.launchSite);
     this.rocket=new THREE.Group();this.scene.add(this.rocket);this.scene.add(this.exhaust.mesh);
     this.markers=new THREE.Group();this.scene.add(this.markers);
@@ -302,6 +299,9 @@ export class RocketScene{
     this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=null;
     for(const g of this.groups.values())g.getObjectByName('engine-gimbal')?.quaternion.identity();
     this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
+    setVabLighting(this.scene,mode==='editor');
+    (this.scene.fog as THREE.FogExp2).color.set(mode==='editor'?'#10191e':'#172a35');
+    (this.scene.fog as THREE.FogExp2).density=mode==='editor'?.008:.013;
     this.editorGround.visible=mode==='editor';this.launchSite.visible=mode==='flight';this.ground=mode==='flight'?this.launchSite:this.editorGround;
     this.ground.position.set(0,0,0);this.followControls.maxPolarAngle=mode==='flight'?Math.PI*.49:Math.PI*.91;this.setView(false);
   }
@@ -414,7 +414,7 @@ export class RocketScene{
       up,groundHeight:f.altitudeAsl,density:Math.exp(-Math.max(0,f.altitudeAsl)/8500),emitters,obstacles},this.camera);
   }
   dispose(){
-    this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();
+    this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();
     this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();
     this.renderer.dispose();this.renderer.domElement.remove();
   }
@@ -433,6 +433,7 @@ export class RocketScene{
       this.environment.render(this.renderer,this.camera,this.globe,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       if(this.globe)return;this.renderer.clearDepth();
     }
+    if(this.mode==='editor')this.hangar.update(this.camera);
     this.renderer.render(this.scene,this.camera);
   }
 }

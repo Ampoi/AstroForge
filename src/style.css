@@ -79,3 +79,12 @@ select{font:12px var(--mono);color:#dbece6;background:#132b34;border:1px solid #
 .stack-row.detached{opacity:.5}.stack-row.detached.selected{opacity:.8}.empty-assembly{padding:16px 8px;font-size:12px;line-height:1.8;color:var(--muted)}
 
 #vehicle-list{max-height:min(55dvh,480px);overflow-y:auto;scrollbar-width:thin}.vehicle-row .vehicle-udp{flex:0 0 100%;@apply flex flex-wrap;align-items:center;justify-content:space-between;gap:8px;padding-top:4px}.vehicle-udp code{font:10px var(--mono);color:var(--cyan);user-select:text}.vehicle-udp small{margin-top:0}.vehicle-udp button{border:0;padding:3px 0;color:#a4c9d0;font-size:9px}.vehicle-row .udp-toggle{@apply flex items-center;gap:5px;min-width:86px;justify-content:center;font-family:var(--mono)}.udp-toggle>span{width:22px;height:13px;border-radius:8px;background:#45545d;position:relative}.udp-toggle>span:after{content:"";position:absolute;width:9px;height:9px;left:2px;top:2px;background:#b5c6cd;border-radius:50%;transition:transform .15s}.udp-toggle[aria-checked="true"]{color:#9ce0c9;background:#2c594946;border-color:#588c7788}.udp-toggle[aria-checked="true"]>span{background:#448b76}.udp-toggle[aria-checked="true"]>span:after{transform:translateX(9px);background:#d1ffee}.udp-toggle:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+
+/* Keep assembly controls legible against the VAB's lit service decks. */
+body:not(.flight-mode) .viewport{background:#10191e}
+body:not(.flight-mode) .scene-top{padding:18px 20px;top:12px;left:12px;right:12px;background:linear-gradient(110deg,#0d171eee,#0d171e9c 70%,#0d171e22);border-left:2px solid #c89842;border-radius:2px;pointer-events:none}
+body:not(.flight-mode) .scene-top input{pointer-events:auto}
+body:not(.flight-mode) .scene-top .eyebrow{color:#c4b389}
+body:not(.flight-mode) .scene-bottom{background:#0e191fe6;padding:10px 12px;left:12px;right:12px;bottom:12px;border:1px solid #52666b44;border-radius:4px;color:#a9bcc4}
+body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-color:#72878a66}
+@media(max-width:620px){body:not(.flight-mode) .scene-top{top:50px;padding:12px 10px}body:not(.flight-mode) .scene-bottom{font-size:8px;gap:8px;padding:8px}}
