@@ -6,7 +6,7 @@ import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import {predictOrbit} from '../shared/orbit.ts';
 
 import {EARTH_RADIUS,earthFixed,SunBody} from './celestial.ts';
-import {cloudNoise,cloudShader} from './clouds.ts';
+import {cloudNoise,cloudShader,cloudRenderSize} from './clouds.ts';
 export {EARTH_RADIUS,earthFixed} from './celestial.ts';
 
 function seeded(seed: number){return ()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
@@ -95,11 +95,10 @@ void main(){
     vec3 surface=texture2D(earthMap,uv(n)).rgb;
     float light=dot(n,sunDirection);
     float day=smoothstep(-.08,.12,light);
-    vec2 cloudLayer=sphere(n,sunDirection,CLOUD_BASE+(CLOUD_TOP-CLOUD_BASE)*.4);
-    float cloudShadow=light>0.?mix(.45,1.,cloudSunlight(n+sunDirection*max(0.,cloudLayer.y),hit*pixelAngle)):1.;
+    float shadow=light>0.?cloudShadow(n,hit*pixelAngle):1.;
     float ocean=1.-smoothstep(.01,.12,surface.r-surface.b+.12);
-    float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*cloudShadow;
-    color=surface*(.012+max(0.,light)*1.05*cloudShadow)+shine*vec3(1.,.85,.61)*day;
+    float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*shadow;
+    color=surface*(.012+max(0.,light)*1.05*shadow)+shine*vec3(1.,.85,.61)*day;
     if(globe>.5){vec4 clip=viewProjection*vec4(n*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
   }
   float cloudDistance;
@@ -153,13 +152,33 @@ export class EarthEnvironment{
     const material=new THREE.ShaderMaterial({uniforms:this.uniforms,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
     const copy=new THREE.ShaderMaterial({
-      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel}},depthTest:false,depthWrite:false,
+      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel},
+        observer:this.uniforms.observer,cameraRotation:this.uniforms.cameraRotation,aspect:this.uniforms.aspect,
+        tanFov:this.uniforms.tanFov,viewProjection:this.uniforms.viewProjection,globe:this.uniforms.globe},
+      depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth,
       vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
       fragmentShader: `uniform sampler2D background; uniform vec2 texel; varying vec2 vUv;
+        uniform vec3 observer; uniform mat3 cameraRotation; uniform mat4 viewProjection;
+        uniform float aspect; uniform float tanFov; uniform float globe;
         void main(){
-          gl_FragColor=texture2D(background,vUv)*.5;
-          gl_FragColor+=(texture2D(background,vUv+vec2(texel.x,0.))+texture2D(background,vUv-vec2(texel.x,0.))
-            +texture2D(background,vUv+vec2(0.,texel.y))+texture2D(background,vUv-vec2(0.,texel.y)))*.125;
+          // Reconstruct planet depth at display resolution so orbit tracks are
+          // occluded correctly even though cloud colour uses a bounded buffer.
+          gl_FragDepth=1.;
+          if(globe>.5){
+            vec2 screen=vUv*2.-1.;
+            vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
+            float b=dot(observer,d),h=b*b-dot(observer,observer)+1.;
+            if(h>=0.){
+              float t=-b-sqrt(h);
+              if(t>0.){vec4 clip=viewProjection*vec4(normalize(observer+d*t)*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
+            }
+          }
+          gl_FragColor=texture2D(background,vUv);
+          if(globe<.5){
+            gl_FragColor*=.5;
+            gl_FragColor+=(texture2D(background,vUv+vec2(texel.x,0.))+texture2D(background,vUv-vec2(texel.x,0.))
+              +texture2D(background,vUv+vec2(0.,texel.y))+texture2D(background,vUv-vec2(0.,texel.y)))*.125;
+          }
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
@@ -205,18 +224,15 @@ export class EarthEnvironment{
     u.cameraRotation.value.setFromMatrix4(camera.matrixWorld);u.aspect.value=camera.aspect;u.tanFov.value=Math.tan(camera.fov*Math.PI/360);u.globe.value=globe?1:0;
     u.viewProjection.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
     renderer.getDrawingBufferSize(this.renderSize);u.pixelAngle.value=2*u.tanFov.value/this.renderSize.y;
-    if(globe)renderer.render(this.scene,this.camera);
-    else{
-      // Clouds tolerate half-resolution filtering; keep the craft and launch
-      // site at full resolution. Cap sky work independently of display DPI.
-      const scale=Math.min(.5,Math.sqrt(360000/(this.renderSize.x*this.renderSize.y)));
-      this.background.setSize(Math.max(1,Math.round(this.renderSize.x*scale)),Math.max(1,Math.round(this.renderSize.y*scale)));
-      this.skyTexel.set(1/this.background.width,1/this.background.height);
-      u.pixelAngle.value/=scale;
-      const target=renderer.getRenderTarget();renderer.setRenderTarget(this.background);
-      renderer.render(this.scene,this.camera);renderer.setRenderTarget(target);
-      renderer.render(this.composite,this.camera);
-    }
+    // Both flight and globe views have the same bounded atmosphere cost.
+    // Composite reconstructs exact globe depth; vehicle geometry stays sharp.
+    const size=cloudRenderSize(this.renderSize.x,this.renderSize.y);
+    this.background.setSize(size.width,size.height);
+    this.skyTexel.set(1/this.background.width,1/this.background.height);
+    u.pixelAngle.value=2*u.tanFov.value/size.height;
+    const target=renderer.getRenderTarget();renderer.setRenderTarget(this.background);
+    renderer.render(this.scene,this.camera);renderer.setRenderTarget(target);
+    renderer.render(this.composite,this.camera);
     if(globe){
       const toMarker=this.position.clone().sub(u.observer.value),distance=toMarker.length(),direction=toMarker.normalize();
       const b=u.observer.value.dot(direction),c=u.observer.value.lengthSq()-1,disc=b*b-c,hit=disc>=0?-b-Math.sqrt(disc):-1;
