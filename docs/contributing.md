@@ -113,7 +113,7 @@ python3 tests/upstream_compatibility.py /path/to/PyLoN
 
 実UDP・デモ・分離の試験は機体の配置や飛行状態を変更するため、日常の飛行とは別のサーバー・保存先を使います。上流互換試験はパケット変換関数の確認で、ROS/DDS全体の結合試験ではありません。
 
-## ドキュメントを編集する
+## Python SDKを変更する
 
 Python SDKを変更した場合は、Python 3.11以上の仮想環境で追加確認を実行します。
 
@@ -126,6 +126,8 @@ python -m pip wheel ./python --no-deps -w artifacts/python-dist
 ```
 
 `integration.py`は専用サーバー・一時保存先・空きポートを作成し、終了時にサーバーを停止します。既存の飛行には接続しません。Windowsでは `python` を `.venv/Scripts/python.exe`、macOS / Linuxでは `.venv/bin/python` に置き換えて実行できます。利用方法は [Python SDK](./python-sdk) を参照してください。
+
+## ドキュメントを編集する
 
 ```sh
 npm run docs:dev
