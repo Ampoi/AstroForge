@@ -90,13 +90,6 @@ const server=http.createServer(async(req,res)=>{
         });json(res,200,state());return;
       }
       if(path==='/api/time-scale'){world.setTimeScale(input.scale);json(res,200,state());return;}
-      if(path==='/api/manual-demo'){
-        await changeControl(async()=>{
-          const target=world.vehicles.find(v=>v.id===input.vehicleId);
-          if(!target||input.action==='start'&&['destroyed','crashed','landed'].includes(target.status))throw Error('この機体は制御対象にできません');
-          await udp.manual(target.id,input.action,input.throttle);
-        });json(res,200,state());return;
-      }
       if(path==='/api/revert'){
         // Explicit legacy reset endpoint. Opening the VAB uses /api/editor instead.
         await changeControl(async()=>{await udp.close();world=new FlightWorld(craft.assemblyVersion?sim.craft:craft);sim=world.active;mode='editor';});json(res,200,state());return;
