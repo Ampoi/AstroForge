@@ -5,13 +5,10 @@ import {LineGeometry} from 'three/addons/lines/LineGeometry.js';
 import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import {predictOrbit} from '../shared/orbit.ts';
 
-export const EARTH_RADIUS=6371000;
-const SPIN=7.292115e-5;
-// Inertial metres -> Earth-fixed Three coordinates (north = -Z, launch zenith = +Y).
-export function earthFixed(position: number[],time: number){
-  const c=Math.cos(SPIN*time),s=Math.sin(SPIN*time),[x,y,z]=position;
-  return new THREE.Vector3(-s*x+c*y,c*x+s*y,-z);
-}
+import {EARTH_RADIUS,earthFixed,SunBody} from './celestial.ts';
+import {cloudNoise,cloudShader} from './clouds.ts';
+export {EARTH_RADIUS,earthFixed} from './celestial.ts';
+
 function seeded(seed: number){return ()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
 function texture(canvas: HTMLCanvasElement){const t=new THREE.CanvasTexture(canvas);t.wrapS=THREE.RepeatWrapping;t.colorSpace=THREE.SRGBColorSpace;return t;}
 
@@ -59,8 +56,11 @@ uniform sampler2D earthMap;
 uniform sampler2D stars;
 uniform vec3 observer;
 uniform vec3 sunDirection;
+uniform vec3 sunPosition;
+uniform float sunRadius;
 uniform mat3 cameraRotation;
 uniform mat4 viewProjection;
+uniform float pixelAngle;
 uniform float aspect;
 uniform float tanFov;
 uniform float globe;
@@ -69,34 +69,49 @@ const float PI=3.14159265359;
 const float ATM=1.01256;
 vec2 sphere(vec3 o,vec3 d,float r){float b=dot(o,d);float c=dot(o,o)-r*r;float h=b*b-c;if(h<0.)return vec2(-1.);h=sqrt(h);return vec2(-b-h,-b+h);}
 vec2 uv(vec3 n){return vec2(atan(n.x,n.y)/(2.*PI)+.5,asin(clamp(-n.z,-1.,1.))/PI+.5);}
-float hash(vec3 p){p=fract(p*.3183099+vec3(.1,.2,.3));p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
-float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
-float clouds(vec3 n){vec3 p=n*18.;p+=vec3(sin(n.z*27.),cos(n.x*21.),sin(n.y*24.))*.9;return smoothstep(.48,.73,noise(p)*.57+noise(p*2.1)*.28+noise(p*4.3)*.15);}
+${cloudShader}
 void main(){
   vec2 screen=vUv*2.-1.;
   vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
   vec2 ground=sphere(observer,d,1.);
   float hit=ground.x>0.?ground.x:-1.;
-  vec3 color=texture2D(stars,uv(d)).rgb*.85;
-  float sunDot=dot(d,sunDirection);
-  color+=vec3(1.,.85,.63)*(.07*pow(max(0.,sunDot),120.)+8.*smoothstep(.99997,.99999,sunDot));
+  float skyDay=smoothstep(-.10,.15,dot(normalize(observer),sunDirection));
+  float starVisibility=1.-skyDay*exp(-max(0.,length(observer)-1.)/.008);
+  vec3 color=texture2D(stars,uv(d)).rgb*.85*starVisibility;
+  vec3 toSun=sunPosition-observer;
+  vec3 solarBearing=normalize(toSun);
+  float sunDot=dot(d,solarBearing);
+  // Finite solar sphere, evaluated angularly to avoid subtracting AU-scale
+  // squared distances in float32. Its apparent diameter is about 0.53 degrees.
+  float angularRadius=asin(sunRadius/length(toSun));
+  float angle=atan(length(cross(d,solarBearing)),sunDot);
+  float edge=max(fwidth(angle),.000015);
+  float disc=1.-smoothstep(angularRadius-edge,angularRadius+edge,angle);
+  float limb=sqrt(max(0.,1.-pow(angle/angularRadius,2.)));
+  color+=vec3(1.,.89,.69)*(disc*(9.+7.*limb)+.24*exp(-angle*angle/.00022)+.035*exp(-angle*18.));
   gl_FragDepth=1.;
   if(hit>0.){
     vec3 n=normalize(observer+d*hit);
     vec3 surface=texture2D(earthMap,uv(n)).rgb;
     float light=dot(n,sunDirection);
     float day=smoothstep(-.08,.12,light);
-    float cloud=clouds(n)*.58;
-    surface=mix(surface,vec3(.78,.86,.91),cloud);
+    vec2 cloudLayer=sphere(n,sunDirection,CLOUD_BASE+(CLOUD_TOP-CLOUD_BASE)*.4);
+    float cloudShadow=light>0.?mix(.45,1.,cloudSunlight(n+sunDirection*max(0.,cloudLayer.y),hit*pixelAngle)):1.;
     float ocean=1.-smoothstep(.01,.12,surface.r-surface.b+.12);
-    float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*(1.-cloud);
-    color=surface*(.012+max(0.,light)*1.05)+shine*vec3(1.,.85,.61)*day;
+    float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*cloudShadow;
+    color=surface*(.012+max(0.,light)*1.05*cloudShadow)+shine*vec3(1.,.85,.61)*day;
     if(globe>.5){vec4 clip=viewProjection*vec4(n*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
   }
+  float cloudDistance;
+  vec4 cloud=traceClouds(observer,d,hit,cloudDistance);
+  color=color*cloud.a+cloud.rgb;
   // Six samples of exponential atmospheric density. Visual scattering approximation.
   vec2 air=sphere(observer,d,ATM);
   if(air.y>0.){
     float start=max(0.,air.x),end=hit>0.?min(hit,air.y):air.y;
+    // Apply only the air in front of opaque clouds, so nearby white tops and
+    // dark bases are not washed out by the entire atmospheric column.
+    end=mix(min(end,max(start,cloudDistance)),end,cloud.a);
     float ds=max(0.,end-start)/6.;
     vec3 optical=vec3(0.),scatter=vec3(0.);
     vec3 beta=vec3(5.8,13.5,33.1);
@@ -117,9 +132,14 @@ void main(){
   #include <colorspace_fragment>
 }`;
 
-function makeUniforms(map: THREE.Texture){return {earthMap:{value:map},stars:{value:starTexture()},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
+function makeUniforms(map: THREE.Texture){return {earthMap:{value:map},stars:{value:starTexture()},cloudNoise:{value:cloudNoise()},sunPosition:{value:new THREE.Vector3()},sunRadius:{value:0},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},pixelAngle:{value:.001},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
 
 export class EarthEnvironment{
+  readonly sun=new SunBody();
+  private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false});
+  private readonly composite=new THREE.Scene();
+  private readonly renderSize=new THREE.Vector2();
+  private readonly skyTexel=new THREE.Vector2(1,1);
   scene: THREE.Scene; camera: THREE.OrthographicCamera; ready: Promise<void>;
   uniforms: ReturnType<typeof makeUniforms>; overlay: THREE.Scene;
   trail: THREE.Line<THREE.BufferGeometry,THREE.LineBasicMaterial>; prediction: Line2;
@@ -129,8 +149,22 @@ export class EarthEnvironment{
     this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
     const {map,ready}=earthTexture();this.ready=ready;
     this.uniforms=makeUniforms(map);
+    this.uniforms.sunPosition.value=this.sun.position;this.uniforms.sunRadius.value=this.sun.radius;
     const material=new THREE.ShaderMaterial({uniforms:this.uniforms,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
+    const copy=new THREE.ShaderMaterial({
+      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel}},depthTest:false,depthWrite:false,
+      vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
+      fragmentShader: `uniform sampler2D background; uniform vec2 texel; varying vec2 vUv;
+        void main(){
+          gl_FragColor=texture2D(background,vUv)*.5;
+          gl_FragColor+=(texture2D(background,vUv+vec2(texel.x,0.))+texture2D(background,vUv-vec2(texel.x,0.))
+            +texture2D(background,vUv+vec2(0.,texel.y))+texture2D(background,vUv-vec2(0.,texel.y)))*.125;
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.composite.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),copy));
     this.overlay=new THREE.Scene();
     this.trail=new THREE.Line(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:'#f4b582',transparent:true,opacity:.85}));this.trail.frustumCulled=false;this.overlay.add(this.trail);
     this.prediction=new Line2(new LineGeometry(),new LineMaterial({color:'#87e6dd',linewidth:2.2,dashed:true,dashSize:.4,gapSize:.2,transparent:true,opacity:.95,depthWrite:false}));this.prediction.frustumCulled=false;this.overlay.add(this.prediction);
@@ -141,7 +175,7 @@ export class EarthEnvironment{
   }
   updatePose(f: FlightSnapshot){
     this.destroyed=f.status==='destroyed';this.time=f.time;this.position.copy(earthFixed(f.position,f.time)).divideScalar(EARTH_RADIUS);
-    this.uniforms.sunDirection.value.copy(earthFixed([.3,-.8,.5],f.time)).normalize();
+    this.sun.update(f.time);this.uniforms.sunDirection.value.copy(this.sun.position).normalize();
     this.marker.position.copy(this.position).multiplyScalar(10.002);
   }
   update(f: FlightSnapshot,trail: number[][]=[]){
@@ -155,13 +189,14 @@ export class EarthEnvironment{
     this.prediction.visible=predicted.length>1;
   }
   dispose(){
-    for(const scene of [this.scene,this.overlay])scene.traverse(o=>{
+    for(const scene of [this.scene,this.overlay,this.composite])scene.traverse(o=>{
       if(o instanceof THREE.Mesh || o instanceof THREE.Line || o instanceof THREE.Sprite){
         if('geometry' in o)o.geometry.dispose();
         for(const m of Array.isArray(o.material)?o.material:[o.material]){if('map' in m && m.map instanceof THREE.Texture)m.map.dispose();m.dispose();}
       }
     });
-    this.uniforms.earthMap.value.dispose();this.uniforms.stars.value.dispose();
+    this.background.dispose();
+    this.uniforms.earthMap.value.dispose();this.uniforms.stars.value.dispose();this.uniforms.cloudNoise.value.dispose();
   }
   render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3){
     camera.updateMatrixWorld();
@@ -169,7 +204,19 @@ export class EarthEnvironment{
     u.observer.value.copy(globe?camera.position.clone().divideScalar(10):this.position.clone().add(camera.position.clone().sub(rocketCenter).divideScalar(EARTH_RADIUS)));
     u.cameraRotation.value.setFromMatrix4(camera.matrixWorld);u.aspect.value=camera.aspect;u.tanFov.value=Math.tan(camera.fov*Math.PI/360);u.globe.value=globe?1:0;
     u.viewProjection.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
-    renderer.render(this.scene,this.camera);
+    renderer.getDrawingBufferSize(this.renderSize);u.pixelAngle.value=2*u.tanFov.value/this.renderSize.y;
+    if(globe)renderer.render(this.scene,this.camera);
+    else{
+      // Clouds tolerate half-resolution filtering; keep the craft and launch
+      // site at full resolution. Cap sky work independently of display DPI.
+      const scale=Math.min(.5,Math.sqrt(360000/(this.renderSize.x*this.renderSize.y)));
+      this.background.setSize(Math.max(1,Math.round(this.renderSize.x*scale)),Math.max(1,Math.round(this.renderSize.y*scale)));
+      this.skyTexel.set(1/this.background.width,1/this.background.height);
+      u.pixelAngle.value/=scale;
+      const target=renderer.getRenderTarget();renderer.setRenderTarget(this.background);
+      renderer.render(this.scene,this.camera);renderer.setRenderTarget(target);
+      renderer.render(this.composite,this.camera);
+    }
     if(globe){
       const toMarker=this.position.clone().sub(u.observer.value),distance=toMarker.length(),direction=toMarker.normalize();
       const b=u.observer.value.dot(direction),c=u.observer.value.lengthSq()-1,disc=b*b-c,hit=disc>=0?-b-Math.sqrt(disc):-1;

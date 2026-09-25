@@ -8,6 +8,7 @@ import {PARTS,layoutCraft,surfaceRadius,WHEEL} from '../shared/craft.ts';
 import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
+import {SceneLighting} from './celestial.ts';
 import {makeLaunchSite} from './launch-site.ts';
 import {VabEnvironment, setVabLighting} from './vab.ts';
 import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} from './exhaust.ts';
@@ -111,7 +112,7 @@ export class RocketScene{
   mode: Mode='editor'; selected: string | null=null; placing: PartType | null=null;
   groups=new Map<string,THREE.Group>(); showMarkers=false; scene: THREE.Scene;
   camera: THREE.PerspectiveCamera; followCamera: THREE.PerspectiveCamera; globeCamera: THREE.PerspectiveCamera;
-  renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
+  lighting: SceneLighting; renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
   controls: OrbitControls; followControls: OrbitControls; globeControls: OrbitControls;
   ground: THREE.Group; editorGround: THREE.Group; launchSite: THREE.Group; grid: THREE.GridHelper;
   hangar: VabEnvironment; rocket: THREE.Group; markers: THREE.Group; snapGroup: THREE.Group; preview: THREE.Group;
@@ -135,9 +136,7 @@ export class RocketScene{
     this.followCamera=this.camera;this.followControls=this.controls;
     this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,4000);this.globeCamera.up.set(0,0,-1);
     this.globeControls=new OrbitControls(this.globeCamera,this.renderer.domElement);this.globeControls.enableDamping=true;this.globeControls.enablePan=false;this.globeControls.minDistance=12;this.globeControls.maxDistance=1500;this.globeControls.enabled=false;
-    this.scene.add(new THREE.HemisphereLight('#bddeef','#32464b',2.4));
-    const key=new THREE.DirectionalLight('#ffedda',4);key.position.set(8,18,12);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-12;key.shadow.camera.right=12;key.shadow.camera.top=15;key.shadow.camera.bottom=-12;key.shadow.normalBias=.035;this.scene.add(key);
-    const rim=new THREE.DirectionalLight('#6cb8e3',2.5);rim.position.set(-10,10,-10);this.scene.add(rim);
+    this.lighting=new SceneLighting(this.scene);
     this.ground=new THREE.Group();this.scene.add(this.ground);
     this.hangar=new VabEnvironment();this.ground.add(this.hangar);
     this.grid=new THREE.GridHelper(44,44,'#78908f','#52666b');this.grid.position.y=.02;this.grid.material.transparent=true;this.grid.material.opacity=.15;this.ground.add(this.grid);
@@ -296,6 +295,7 @@ export class RocketScene{
   setMode(mode: Mode){
     this.flightMotion.clear();
     for(const g of this.debrisGroups.values()){this.scene.remove(g);disposeGroup(g);}this.debrisGroups.clear();
+    if(mode==='editor')this.lighting.editor();
     this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=null;
     for(const g of this.groups.values())g.getObjectByName('engine-gimbal')?.quaternion.identity();
     this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
@@ -416,7 +416,7 @@ export class RocketScene{
   dispose(){
     this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();
     this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();
-    this.renderer.dispose();this.renderer.domElement.remove();
+    this.lighting.dispose();this.renderer.dispose();this.renderer.domElement.remove();
   }
   setFrameRate(rate: FrameRate){this.frameClock.setRate(rate);}
   get fps(){return this.frameClock.fps;}
@@ -430,6 +430,7 @@ export class RocketScene{
     const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}
     if(this.mode==='flight'){
+      this.lighting.flight(this.environment.sun,this.environment.position,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       this.environment.render(this.renderer,this.camera,this.globe,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       if(this.globe)return;this.renderer.clearDepth();
     }
