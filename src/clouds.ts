@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {EARTH_RADIUS} from './celestial.ts';
+import {WEATHER_FACE_SIZE} from './weather.ts';
 
-// Representative fair-weather layers, not a meteorological simulation. Cloud
+// Representative altitude layers, not a meteorological simulation. Cloud
 // bases vary with latitude/weather; cumulus can develop well above its base.
 // https://www.weather.gov/lmk/cloud_classification
 export const CLOUD_LAYERS={
@@ -18,12 +19,14 @@ export function cloudRenderSize(width: number,height: number){
   return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale))};
 }
 
-// Bake three noise octaves and their surface normals once. The shader needs
+// Bake base shape, cellular edge erosion and surface normals once. The shader needs
 // one filtered lookup for shape + shading instead of sampling noise octaves
 // again for every step along both the view ray and the light ray.
 export function cloudNoise(){
-  const size=64,latticeSize=16,lattice=new Float32Array(latticeSize**3);let seed=92731;
-  for(let i=0;i<lattice.length;i++){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;lattice[i]=(seed>>>0)/4294967296;}
+  const size=64,latticeSize=16,lattice=new Float32Array(latticeSize**3),features=new Float32Array(latticeSize**3*3);let seed=92731;
+  const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
+  for(let i=0;i<lattice.length;i++)lattice[i]=random();
+  for(let i=0;i<features.length;i++)features[i]=.15+.7*random();
   const index=(x: number,y: number,z: number,n: number)=>((z+n)%n*n+(y+n)%n)*n+(x+n)%n;
   const smooth=(v: number)=>v*v*(3-2*v);
   const noise=(x: number,y: number,z: number)=>{
@@ -32,13 +35,27 @@ export function cloudNoise(){
     for(let k=0;k<2;k++)for(let j=0;j<2;j++)for(let i=0;i<2;i++)value+=lattice[index(ix+i,iy+j,iz+k,latticeSize)]*(i?fx:1-fx)*(j?fy:1-fy)*(k?fz:1-fz);
     return value;
   };
+  const billows=(x: number,y: number,z: number,period: number)=>{
+    const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z),mask=period-1;let nearest=4;
+    for(let k=-1;k<=1;k++)for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){
+      const a=ix+i,b=iy+j,c=iz+k,offset=(((c&mask)*period+(b&mask))*period+(a&mask))*3;
+      const dx=a+features[offset]-x,dy=b+features[offset+1]-y,dz=c+features[offset+2]-z;
+      nearest=Math.min(nearest,dx*dx+dy*dy+dz*dz);
+    }
+    return Math.max(0,1-Math.sqrt(nearest));
+  };
+  const erode=(base: number,edge: number)=>Math.max(0,(base-edge)/(1-edge));
   const field=new Float32Array(size**3),data=new Uint8Array(size**3*4);
-  for(let z=0;z<size;z++)for(let y=0;y<size;y++)for(let x=0;x<size;x++)field[index(x,y,z,size)]=noise(x/4,y/4,z/4)*.6+noise(x/2,y/2,z/2)*.28+noise(x,y,z)*.12;
+  for(let z=0;z<size;z++)for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const base=noise(x/4,y/4,z/4)*.72+noise(x/2,y/2,z/2)*.20+noise(x,y,z)*.08;
+    const shape=erode(base,(1-billows(x/8,y/8,z/8,8))*.20);
+    field[index(x,y,z,size)]=erode(shape,(1-billows(x/2,y/2,z/2,16))*.10);
+  }
   for(let z=0;z<size;z++)for(let y=0;y<size;y++)for(let x=0;x<size;x++){
     const i=index(x,y,z,size)*4;
     const dx=field[index(x-1,y,z,size)]-field[index(x+1,y,z,size)],dy=field[index(x,y-1,z,size)]-field[index(x,y+1,z,size)],dz=field[index(x,y,z-1,size)]-field[index(x,y,z+1,size)];
-    const length=Math.hypot(dx,dy,dz)||1;
-    data[i]=Math.round(field[i/4]*255);data[i+1]=Math.round((dx/length*.5+.5)*255);data[i+2]=Math.round((dy/length*.5+.5)*255);data[i+3]=Math.round((dz/length*.5+.5)*255);
+    const length=Math.hypot(dx,dy,dz);
+    data[i]=Math.round(field[i/4]*255);data[i+1]=Math.round(((length?dx/length:0)*.5+.5)*255);data[i+2]=Math.round(((length?dy/length:1)*.5+.5)*255);data[i+3]=Math.round(((length?dz/length:0)*.5+.5)*255);
   }
   const map=new THREE.Data3DTexture(data,size,size,size);
   map.format=THREE.RGBAFormat;map.magFilter=THREE.LinearFilter;map.minFilter=THREE.LinearMipmapLinearFilter;map.generateMipmaps=true;
@@ -48,33 +65,55 @@ export function cloudNoise(){
 const radius=(height: number)=>(1+height/EARTH_RADIUS).toFixed(10);
 export const cloudShader=`
 uniform highp sampler3D cloudNoise;
+uniform samplerCube cloudWeather;
 const float LOW_BASE=${radius(CLOUD_LAYERS.low.base)};
 const float LOW_TOP=${radius(CLOUD_LAYERS.low.top)};
 const float MIDDLE_RADIUS=${radius((CLOUD_LAYERS.middle.base+CLOUD_LAYERS.middle.top)/2)};
 const float HIGH_RADIUS=${radius((CLOUD_LAYERS.high.base+CLOUD_LAYERS.high.top)/2)};
 vec4 cloudField(vec3 p,float footprint){return textureLod(cloudNoise,p/64.,max(0.,log2(max(1.,footprint))));}
-float weather(vec3 p,float footprint){return cloudField(normalize(p)*80.+vec3(6.,1.,9.),footprint*80.).r;}
+vec4 weather(vec3 p,float footprint){
+  // A cube has no latitude singularity or date-line discontinuity, and avoids
+  // per-sample trigonometry. Mips filter cloud footprints on every hemisphere.
+  float lod=max(0.,log2(max(1.,footprint*${WEATHER_FACE_SIZE.toFixed(1)}*.5)));
+  return textureLod(cloudWeather,normalize(p),lod);
+}
 vec3 cloudColor(vec3 p,float shade){
   float elevation=dot(normalize(p),sunDirection),day=smoothstep(-.035,.055,elevation);
   vec3 sunlight=mix(vec3(1.,.48,.24),vec3(1.,.96,.87),smoothstep(0.,.3,elevation));
   return vec3(.004,.007,.014)+day*(vec3(.15,.21,.30)+sunlight*shade);
 }
-float lowDensity(float weatherValue,float shape,float height){
+float lowDensity(float coverage,float type,float shape,float height,float footprint){
   // Flat condensation base, rounded tops, eroded gaps between cloud cells.
-  float body=smoothstep(.46,.67,weatherValue*.48+shape*.52);
-  float profile=smoothstep(0.,.10,height)*(1.-smoothstep(.45,1.,height));
-  return max(0.,body*profile-.06)*1.6;
+  float threshold=mix(.72,.20,coverage);
+  float cells=smoothstep(threshold,threshold+.15,shape)*smoothstep(0.,.12,coverage);
+  // Preserve regional cloud fraction when individual cells become subpixel.
+  // Filtering fine noise first and thresholding it would paint uniform sheets.
+  float body=mix(cells,coverage,smoothstep(.0004,.003,footprint));
+  // Low marine decks stay shallow; convective regions have rounded taller tops.
+  float top=mix(.40,1.,type);
+  float profile=smoothstep(0.,.08,height)*(1.-smoothstep(top*.55,top,height));
+  return body*profile*1.6;
 }
 vec4 lowClouds(vec3 origin,vec3 direction,float start,float end,out float distance){
   distance=(start+end)*.5;
   if(end<=start)return vec4(0.,0.,0.,1.);
   float ds=(end-start)/float(${CLOUD_RENDER_BUDGET.volumeSamples}),transmission=1.;vec3 radiance=vec3(0.);
+  // Short rays stay well inside one ~100 km weather texel. Share their regional
+  // lookup; long grazing paths still follow the weather at each sample.
+  bool localRegion=end-start<.002;
+  vec4 localWeather=localRegion?weather(origin+direction*distance,max(ds*.4,distance*pixelAngle)):vec4(0.);
   for(int i=0;i<${CLOUD_RENDER_BUDGET.volumeSamples};i++){
     float t=start+(float(i)+.5)*ds;vec3 p=origin+direction*t;
     float footprint=max(ds*.4,t*pixelAngle);
-    vec4 shape=cloudField(p*12000.,footprint*12000.);
+    vec4 column=localRegion?localWeather:weather(p,footprint);float coverage=column.r;
+    if(coverage<.01)continue;
     float h=clamp((length(p)-LOW_BASE)/(LOW_TOP-LOW_BASE),0.,1.);
-    float density=lowDensity(weather(p,footprint),shape.r,h);
+    if(h>=mix(.40,1.,column.a))continue;
+    // Once cells are subpixel the atlas carries their filtered footprint; a
+    // 3D detail fetch would only return an average and add no visible shape.
+    vec4 shape=footprint<.003?cloudField(p*12000.,footprint*12000.):vec4(.5,normalize(p)*.5+.5);
+    float density=lowDensity(coverage,column.a,shape.r,h,footprint);
+    if(density<=0.)continue;
     float alpha=1.-exp(-density*ds*4200.);
     // Baked normal and cloud depth approximate self-shadowing without a
     // secondary light march. Sun position still drives the lit side.
@@ -87,19 +126,24 @@ vec4 lowClouds(vec3 origin,vec3 direction,float start,float end,out float distan
 vec4 cloudSheet(vec3 origin,vec3 direction,float t,float groundHit,bool high){
   if(t<=0.||(groundHit>0.&&t>=groundHit))return vec4(0.,0.,0.,1.);
   vec3 p=origin+direction*t;float footprint=t*pixelAngle;
-  float coverage=weather(p+(high?vec3(.1,0.,.05):vec3(.1,.03,0.)),footprint);
+  vec4 column=weather(p,footprint);
+  float coverage=high?column.b:column.g;
+  if(coverage<.005)return vec4(0.,0.,0.,1.);
   // Mid-level small patches vs high, optically thin, elongated ice streaks.
-  vec3 frequency=high?vec3(2500.,6500.,65000.):vec3(22000.);
-  vec3 q=p*frequency;if(high)q.z+=sin(p.x*1700.+p.y*800.)*10.;
-  float shape=cloudField(q,footprint*(high?65000.:22000.)).r;
-  float density=high?smoothstep(.47,.68,shape)*smoothstep(.44,.66,coverage):smoothstep(.45,.67,shape*.6+coverage*.4);
+  // Regional fronts/anvils come from the atlas, not global parallel stripes.
+  vec3 frequency=high?vec3(3500.,3500.,9000.):vec3(22000.);
+  float shape=cloudField(p*frequency,footprint*(high?9000.:22000.)).r;
+  float threshold=mix(.8,.26,coverage);
+  float cells=smoothstep(threshold,threshold+.15,shape)*smoothstep(0.,.12,coverage);
+  float density=high?coverage*(.55+.45*shape):mix(cells,coverage,smoothstep(.0004,.003,footprint));
+  if(density<=0.)return vec4(0.,0.,0.,1.);
   float slant=1./max(.18,abs(dot(normalize(p),direction)));
   float alpha=1.-exp(-density*slant*(high?.16:.9));
   return vec4(cloudColor(p,high?.85:.65)*alpha,1.-alpha);
 }
 float cloudShadow(vec3 p,float footprint){
   // A single broad weather lookup replaces four additional light-ray samples.
-  return 1.-smoothstep(.46,.68,weather(p,footprint))*.3;
+  return 1.-weather(p,footprint).r*.3;
 }
 vec4 traceClouds(vec3 origin,vec3 direction,float groundHit,out float cloudDistance){
   vec2 outer=sphere(origin,direction,LOW_TOP),inner=sphere(origin,direction,LOW_BASE);

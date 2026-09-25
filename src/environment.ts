@@ -7,6 +7,7 @@ import {predictOrbit} from '../shared/orbit.ts';
 
 import {EARTH_RADIUS,earthFixed,SunBody} from './celestial.ts';
 import {cloudNoise,cloudShader,cloudRenderSize} from './clouds.ts';
+import {weatherTexture} from './weather.ts';
 export {EARTH_RADIUS,earthFixed} from './celestial.ts';
 
 function seeded(seed: number){return ()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};}
@@ -92,7 +93,11 @@ void main(){
   gl_FragDepth=1.;
   if(hit>0.){
     vec3 n=normalize(observer+d*hit);
-    vec3 surface=texture2D(earthMap,uv(n)).rgb;
+    // Measure the footprint on the sphere, not across the UV date-line seam.
+    // Bound the polar stretch so longitude's singularity cannot blur the whole
+    // latitude range into alternating radial streaks at the ice cap.
+    float surfaceFootprint=max(length(dFdx(n)),length(dFdy(n)))*1024./(PI*max(.15,length(n.xy)));
+    vec3 surface=textureLod(earthMap,uv(n),max(0.,log2(max(1.,surfaceFootprint)))).rgb;
     float light=dot(n,sunDirection);
     float day=smoothstep(-.08,.12,light);
     float shadow=light>0.?cloudShadow(n,hit*pixelAngle):1.;
@@ -131,10 +136,11 @@ void main(){
   #include <colorspace_fragment>
 }`;
 
-function makeUniforms(map: THREE.Texture){return {earthMap:{value:map},stars:{value:starTexture()},cloudNoise:{value:cloudNoise()},sunPosition:{value:new THREE.Vector3()},sunRadius:{value:0},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},pixelAngle:{value:.001},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
+function makeUniforms(map: THREE.Texture,weather: THREE.Texture){return {cloudWeather:{value:weather},earthMap:{value:map},stars:{value:starTexture()},cloudNoise:{value:cloudNoise()},sunPosition:{value:new THREE.Vector3()},sunRadius:{value:0},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},pixelAngle:{value:.001},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
 
 export class EarthEnvironment{
   readonly sun=new SunBody();
+  private readonly weather=weatherTexture();
   private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false});
   private readonly composite=new THREE.Scene();
   private readonly renderSize=new THREE.Vector2();
@@ -146,8 +152,8 @@ export class EarthEnvironment{
 
   constructor(){
     this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-    const {map,ready}=earthTexture();this.ready=ready;
-    this.uniforms=makeUniforms(map);
+    const {map,ready}=earthTexture();this.ready=Promise.all([ready,this.weather.ready]).then(()=>{});
+    this.uniforms=makeUniforms(map,this.weather.map);
     this.uniforms.sunPosition.value=this.sun.position;this.uniforms.sunRadius.value=this.sun.radius;
     const material=new THREE.ShaderMaterial({uniforms:this.uniforms,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
@@ -214,7 +220,7 @@ export class EarthEnvironment{
         for(const m of Array.isArray(o.material)?o.material:[o.material]){if('map' in m && m.map instanceof THREE.Texture)m.map.dispose();m.dispose();}
       }
     });
-    this.background.dispose();
+    this.background.dispose();this.weather.dispose();
     this.uniforms.earthMap.value.dispose();this.uniforms.stars.value.dispose();this.uniforms.cloudNoise.value.dispose();
   }
   render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3){
