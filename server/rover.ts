@@ -25,15 +25,16 @@ export function roverForces(sim: Simulation,dt: number,now: number){
     const maxDriveTorque=active&&c.maxDriveTorque>0?Math.min(c.maxDriveTorque,WHEEL.motorForce*WHEEL.radius):WHEEL.motorForce*WHEEL.radius;
     // Service brake is independent of motor enabled. Loss of control/power parks.
     const brake=active?c.brake:1;
-    const anchor=add(p.position,[0,Math.cos(p.angle!)*WHEEL.trackOffset,Math.sin(p.angle!)*WHEEL.trackOffset]);
-    const rest=add(anchor,[0,0,-WHEEL.extension]),s=sample(rest);
-    const upright=Math.max(0,s.normal[2]);
+    const rotation=p.rotation??[0,0,0,1],up=rotate(rotation,[0,0,1]);
+    const anchor=add(p.position,rotate(rotation,[0,Math.cos(p.angle!)*WHEEL.trackOffset,Math.sin(p.angle!)*WHEEL.trackOffset]));
+    const rest=add(anchor,mul(up,-WHEEL.extension)),s=sample(rest);
+    const upright=Math.max(0,dot(s.normal,up));
     const raw=upright>.2?(WHEEL.radius-s.height)/upright:0;
     const compression=clamp(raw,0,WHEEL.travel),grounded=raw>0&&upright>.2;
-    const contact=add(rest,[0,0,compression-WHEEL.radius]);
+    const contact=add(rest,mul(up,compression-WHEEL.radius));
     const v=sample(contact).velocity;
     const normalForce=grounded?Math.max(0,WHEEL.spring*compression-WHEEL.damper*dot(s.velocity,s.normal)+80000*Math.max(0,raw-WHEEL.travel)):0;
-    const heading=[Math.cos(steering),Math.sin(steering),0];
+    const heading=rotate(rotation,[Math.cos(steering),Math.sin(steering),0]);
     const forward=unit(sub(heading,mul(s.normal,dot(heading,s.normal)))),side=unit(cross(s.normal,forward));
     const speed=dot(v,forward),lateral=dot(v,side);
     // PyLoN uses a proportional angular-velocity servo with gain 0.1 s.
@@ -55,7 +56,7 @@ export function roverForces(sim: Simulation,dt: number,now: number){
   for(const p of props.parts.filter(p=>!p.def.radial)){
     const half=[p.def.height/2,(p.def.width||1.25)/2,(p.def.depth||1.25)/2];
     for(const x of [-1,1])for(const y of [-1,1])for(const z of [-1,1]){
-      const point=add(p.position,[x*half[0],y*half[1],z*half[2]]),s=sample(point);
+      const point=add(p.position,rotate(p.rotation??[0,0,0,1],[x*half[0],y*half[1],z*half[2]])),s=sample(point);
       if(s.height>=0)continue;
       const vertical=dot(s.velocity,s.normal),load=Math.max(0,-s.height*40000-vertical*1500);
       const tangent=sub(s.velocity,mul(s.normal,vertical));
@@ -69,13 +70,16 @@ export function roverForces(sim: Simulation,dt: number,now: number){
 /** Geometry is in base_link relative to the current mass centre, like PyLoN. */
 export function wheelGeometry(sim: Simulation,id: string){
   const p=sim.props.parts.find(p=>p.id===id)!;
-  const position=sub(add(p.position,[0,Math.cos(p.angle!)*WHEEL.trackOffset,-WHEEL.extension]),sim.props.com);
+  const position=sub(add(p.position,rotate(p.rotation??[0,0,0,1],[0,Math.cos(p.angle!)*WHEEL.trackOffset,-WHEEL.extension])),sim.props.com);
   const bodyMin=[Infinity,Infinity,Infinity],bodyMax=[-Infinity,-Infinity,-Infinity];
   for(const part of sim.props.parts){
     const center=sub(part.position,sim.props.com);
     const half=part.type==='wheel'?[WHEEL.radius,.18,WHEEL.radius]:[part.def.height/2,(part.def.width??1.25)/2,(part.def.depth??1.25)/2];
-    if(part.type==='wheel'){center[1]+=Math.cos(part.angle!)*WHEEL.trackOffset;center[2]-=WHEEL.extension;}
-    for(let i=0;i<3;i++){bodyMin[i]=Math.min(bodyMin[i],center[i]-half[i]);bodyMax[i]=Math.max(bodyMax[i],center[i]+half[i]);}
+    const rotation=part.rotation??[0,0,0,1];
+    if(part.type==='wheel'){const offset=rotate(rotation,[0,Math.cos(part.angle!)*WHEEL.trackOffset,-WHEEL.extension]);for(let i=0;i<3;i++)center[i]+=offset[i];}
+    const axes=[[1,0,0],[0,1,0],[0,0,1]].map(v=>rotate(rotation,v));
+    for(let i=0;i<3;i++){const extent=half.reduce((sum,v,j)=>sum+v*Math.abs(axes[j][i]),0);bodyMin[i]=Math.min(bodyMin[i],center[i]-extent);bodyMax[i]=Math.max(bodyMax[i],center[i]+extent);}
   }
-  return {wheelCount:sim.craft.parts.filter(p=>p.type==='wheel').length,radius:WHEEL.radius,position,rollingSign:1,steeringSign:1,steeringEnabled:true,maxSteeringAngle:.55,bodyMin,bodyMax};
+  const forward=rotate(p.rotation??[0,0,0,1],[1,0,0]),up=rotate(p.rotation??[0,0,0,1],[0,0,1]);
+  return {wheelCount:sim.craft.parts.filter(p=>p.type==='wheel').length,radius:WHEEL.radius,position,rollingSign:Math.abs(forward[0])>.9?Math.sign(forward[0]):0,steeringSign:Math.abs(up[2])>.9?Math.sign(up[2]):0,steeringEnabled:true,maxSteeringAngle:.55,bodyMin,bodyMax};
 }

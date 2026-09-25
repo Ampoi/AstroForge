@@ -75,6 +75,8 @@ export interface FlightSnapshot {
   stats: ReturnType<typeof craftStats>;
   com: number[];
   engines: EngineResult[];
+  joints: {id:string;position:number}[];
+  partPoses: {id:string;position:number[];rotation:number[]}[];
   wheels: WheelState[];
   powerGeneration: number;
   separations: { id: string; time: number }[];
@@ -95,7 +97,7 @@ export interface WireCommand {
   controllerId: string;
   leaseId: string;
   vesselId: string;
-  action: string;
+  action: string | number;
   priority: number;
   suppressSas: boolean;
   leaseDurationSeconds: number;

@@ -6,15 +6,29 @@ import {PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GROUND_ALTI
 
 import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
 import {roverForces,WHEEL} from './rover.ts';
+import {PartIdentity} from './part-identity.ts';
+import {advanceJoints,internalMomentum} from './motors.ts';
+import type {JointState,MotorInput} from './motors.ts';
+import {articulatedLayout,isJoint} from '../shared/articulation.ts';
+import {advanceThermals} from './thermal.ts';
+import type {ThermalState} from './thermal.ts';
 import {prepareMassModel} from '../shared/mass-model.ts';
 import {physicsKernel} from './physics-kernel.ts';
 export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.ts';
 
 export class Simulation{
   kernel: PhysicsKernel;
+  partIds=new PartIdentity();
+  vesselIdentity=randomUUID().replaceAll('-','');
+  environmentBodies: ()=>Simulation[]=()=>[this,...this.debris];
+  selectedDockingCamera: string|null=null;
+  joints: Record<string,JointState>={}; motors: Record<string,MotorInput>={};
+  get articulated(){return this.craft.parts.some(p=>isJoint(p.type));}
+  thermals: Record<string,ThermalState>={};
   private integrationOutput = Array<number>(13);
   private massModel?: ReturnType<typeof prepareMassModel>;
   private updateMass() {
+    if(this.articulated)return massProperties(this.craft,this.tankFuel,this.stats.mono?this.mono/this.stats.mono:0,articulatedLayout(this.craft,Object.fromEntries(Object.entries(this.joints).map(([id,j])=>[id,j.position]))));
     if (this.massModel?.craft !== this.craft) this.massModel = prepareMassModel(this.craft);
     return this.massModel.update(this.tankFuel, this.stats.mono ? this.mono / this.stats.mono : 0);
   }
@@ -39,7 +53,7 @@ export class Simulation{
     this.tankFuel=Object.fromEntries(tanks.map(p=>[p.id,capacity?clamp(value,0,capacity)/tanks.length:0]));
   }
   reset(craft: Craft){
-    this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
+    this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.joints={};this.motors={};this.selectedDockingCamera=null;this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
     this.time=0;this.status='pad';this.maxAltitude=0;this.maxQ=0;this.trail=[];this.events=[];this.debris=[];this.separations=[];this.passive=false;
     this.props=this.updateMass();this.padHeight=this.props.com[0];
     this.position=[EARTH.radius+this.padHeight,0,0];this.velocity=cross([0,0,EARTH.spin],this.position);
@@ -51,11 +65,11 @@ export class Simulation{
       this.position=[Math.sqrt((EARTH.radius+this.padHeight)**2-200**2),200,0];this.velocity=cross([0,0,EARTH.spin],this.position);
       this.omega=rotate(qconj(this.quaternion),[0,0,EARTH.spin]);this.status='flying';
     }
-    this.wheelStates=[];
+    this.wheelStates=[];this.thermals={};
     this.acceleration=[0,0,0];this.angularAcceleration=[0,0,0];this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};
     this.clearCommands();this.event(this.rover?'ローバーを地表に配置。車輪UDPコマンドを待っています。':'発射台に配置。UDPコマンドを待っています。');
   }
-  clearCommands(){this.wheels={};this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
+  clearCommands(){this.motors={};this.wheels={};this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
   event(text: string){this.events.unshift({time:this.time,text});this.events=this.events.slice(0,30);}
   separationIssue(id: string){
     if(this.status!=='flying')return 'separation_requires_flight';
@@ -66,26 +80,34 @@ export class Simulation{
   separate(id: string){
     const issue=this.separationIssue(id);if(issue)throw Error(issue);
     const {retained,detached}=splitCraft(this.craft,id),oldStats=this.stats;
+    const thermals={...this.thermals},joints=structuredClone(this.joints);
     const fuel={...this.tankFuel},monoFraction=oldStats.mono?this.mono/oldStats.mono:0,chargeFraction=oldStats.power?this.charge/oldStats.power:0;
-    const oldProps=massProperties(this.craft,fuel,monoFraction),origin=[...this.position],velocity=[...this.velocity];
+    const oldProps=this.updateMass(),origin=[...this.position],velocity=[...this.velocity];
     const q=[...this.quaternion],omega=[...this.omega],height=craftStats(detached).height;
     const debris=new Simulation(detached,{kernel:this.kernel});debris.id=`${this.id}/${id}`;debris.createdAt=this.time;debris.time=this.time;debris.status='flying';debris.passive=true;debris.padHeight=this.padHeight;
     this.craft=retained;
     for(const [body,shift] of ([[this,[height,0,0]],[debris,[0,0,0]]] as [Simulation,number[]][])){
+      body.joints=Object.fromEntries(body.craft.parts.filter(p=>joints[p.id]).map(p=>[p.id,joints[p.id]]));
+      body.thermals=Object.fromEntries(body.craft.parts.map(p=>[p.id,{...(thermals[p.id]??{temperature:288.15,skinTemperature:288.15})}]));
+      body.environmentBodies=this.environmentBodies;
       body.stats=craftStats(body.craft);body.tankFuel=Object.fromEntries(body.craft.parts.filter(p=>p.type==='tank').map(p=>[p.id,fuel[p.id]]));
       body.mono=body.stats.mono*monoFraction;body.charge=body.stats.power*chargeFraction;
       body.props=body.updateMass();
-      const offset=sub(add(body.props.com,shift),oldProps.com);
+      const reference=body.props.parts[0],oldReference=oldProps.parts.find(p=>p.id===reference.id)!;
+      const rotation=qmul(oldReference.rotation??[0,0,0,1],qconj(reference.rotation??[0,0,0,1]));
+      const offset=sub(add(oldReference.position,rotate(rotation,sub(body.props.com,reference.position))),oldProps.com);
       body.position=add(origin,rotate(q,offset));body.velocity=add(velocity,rotate(q,cross(omega,offset)));
-      body.quaternion=[...q];body.omega=[...omega];body.clearCommands();
+      body.quaternion=qmul(q,rotation);body.omega=rotate(qconj(rotation),omega);body.clearCommands();
       body.last={thrust:0,drag:0,q:0,mach:0,aoa:0};body.lastActuation=null;
     }
     // Equal/opposite axial impulse at the ring's center, including off-axis torque.
-    const ringPoint=[height-PARTS.decoupler.height/2,0,0];
-    for(const [body,shift,sign] of ([[this,[height,0,0],1],[debris,[0,0,0],-1]] as [Simulation,number[],number][])){
-      const impulse=[sign*PARTS.decoupler.impulse,0,0];
-      body.velocity=add(body.velocity,mul(rotate(q,impulse),1/body.props.mass));
-      body.omega=add(body.omega,matVec(body.props.inverseInertia,cross(sub(ringPoint,add(body.props.com,shift)),impulse)));
+    const ring=oldProps.parts.find(p=>p.id===id)!;
+    const ringWorld=add(origin,rotate(q,sub(ring.position,oldProps.com)));
+    for(const [body,sign] of ([[this,1],[debris,-1]] as [Simulation,number][])){
+      const impulse=rotate(qmul(q,ring.rotation??[0,0,0,1]),[sign*PARTS.decoupler.impulse,0,0]);
+      body.velocity=add(body.velocity,mul(impulse,1/body.props.mass));
+      const arm=rotate(qconj(body.quaternion),sub(ringWorld,body.position)),localImpulse=rotate(qconj(body.quaternion),impulse);
+      body.omega=add(body.omega,matVec(body.props.inverseInertia,cross(arm,localImpulse)));
     }
     this.collisionGraceUntil=this.time+.5;debris.collisionGraceUntil=this.time+.5;this.debris.push(debris);this.separations.push({id,time:this.time});this.event(`分離完了 — ${id} / ${detached.parts.length}パーツを切り離しました`);
   }
@@ -143,7 +165,7 @@ export class Simulation{
       let t=wrench&&exposed?clamp(wrench.force[0],0,maxThrust):(active?clamp(c.targetThrust,0,maxThrust):0);
       const gp=active&&c.hasGimbalCommand?c.gimbalPitch:flight.pitch;
       const gy=active&&c.hasGimbalCommand?c.gimbalYaw:flight.yaw;
-      const direction=unit([1,-gy*Math.tan(Math.PI/30),gp*Math.tan(Math.PI/30)]);
+      const direction=rotate(p.rotation??[0,0,0,1],unit([1,-gy*Math.tan(Math.PI/30),gp*Math.tan(Math.PI/30)]));
       t*=Math.min(1,stageFuel/(t/(isp*G0)*dt||1));
       const f=mul(direction,t);force=add(force,f);torque=add(torque,cross(sub(p.position,this.props.com),f));thrust+=t;
       engineResults.push({id:p.id,thrust:t,maxThrust:exposed?maxThrust:0,available:exposed,fuel:exposed?stageFuel:0,gimbalPitch:gp,gimbalYaw:gy});
@@ -183,6 +205,12 @@ export class Simulation{
     for(const debris of this.debris)debris.step(dt,now);
     this.debris=this.debris.filter(d=>!d.expiresAt||d.time<d.expiresAt);
     if(this.status==='destroyed'){this.time+=dt;return;}
+    if(this.articulated){
+      const momentum=add(matVec(this.props.inertia,this.omega),internalMomentum(this));
+      advanceJoints(this,dt,now);this.props=this.updateMass();
+      this.omega=matVec(this.props.inverseInertia,sub(momentum,internalMomentum(this)));
+    }
+    advanceThermals(this,dt);
     if(this.status==='crashed'||this.status==='landed'){
       const q=axisAngle([0,0,1],EARTH.spin*dt),spin=[0,0,EARTH.spin];
       this.position=rotate(q,this.position);this.quaternion=qmul(q,this.quaternion);this.velocity=cross(spin,this.position);
@@ -211,7 +239,14 @@ export class Simulation{
       this.acceleration=mul(sub(this.velocity,start.slice(3,6)),1/dt);this.angularAcceleration=mul(sub(this.omega,start.slice(10,13)),1/dt);
       const up=unit(this.position),nose=rotate(this.quaternion,[1,0,0]);
       const alignment=dot(up,nose);
-      const contactExtent=Math.max(this.props.com[0]*alignment,-(this.stats.height-this.props.com[0])*alignment)+.625*Math.sqrt(Math.max(0,1-alignment**2));
+      let contactExtent=Math.max(this.props.com[0]*alignment,-(this.stats.height-this.props.com[0])*alignment)+.625*Math.sqrt(Math.max(0,1-alignment**2));
+      if(this.articulated){
+        const upBody=rotate(qconj(this.quaternion),up);
+        contactExtent=Math.max(...this.props.parts.map(p=>{
+          const localUp=rotate(qconj(p.rotation??[0,0,0,1]),upBody),half=[p.def.height/2,(p.def.width??1.25)/2,(p.def.depth??1.25)/2];
+          return -dot(sub(p.position,this.props.com),upBody)+half.reduce((sum,v,i)=>sum+v*Math.abs(localUp[i]),0);
+        }));
+      }
       const lowest=norm(this.position)-EARTH.radius-contactExtent;
       if(!this.rover&&lowest<=0){
         const impact=norm(sub(this.velocity,cross([0,0,EARTH.spin],this.position)));
@@ -238,6 +273,8 @@ export class Simulation{
       mass:this.props.mass,fuel:this.fuel,mono:this.mono,charge:this.charge,orbit,...this.last,maxAltitude:this.maxAltitude,maxQ:this.maxQ,
       upBody:rotate(inverse,up),eastBody:rotate(inverse,east),northBody:rotate(inverse,north),surfaceVelocityBody:rotate(inverse,sv),orbitalVelocityBody:rotate(inverse,this.velocity),
       gravity:EARTH.mu/(r*r),events:this.events,stats:this.stats,com:this.props.com,
+      joints:Object.entries(this.joints).map(([id,j])=>({id,position:j.position})),
+      partPoses:this.articulated?this.props.parts.map(p=>({id:p.id,position:p.position,rotation:p.rotation??[0,0,0,1]})):[],
       wheels:this.wheelStates,engines:this.lastActuation?.engineResults||[],powerGeneration:this.lastActuation?.watts||0,
       separations:this.separations,debris:this.debris.map(d=>d.snapshot(cache))};
     cache?.set(this,snapshot);return snapshot;

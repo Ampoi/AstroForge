@@ -64,7 +64,7 @@ export function aerodynamic(sim: PhysicsBody,position: number[],velocity: number
     const nose=[sim.stats.height*.75,0,0];
     applyNormal(nose,[0,1,0],area,2);applyNormal(nose,[0,0,1],area,2);
     for(const p of sim.props.parts.filter(p=>p.type==='fin')){
-      applyNormal(p.position,[0,-Math.sin(p.angle!),Math.cos(p.angle!)],p.def.area!,4.5);
+      applyNormal(p.position,rotate(p.rotation??[0,0,0,1],[0,-Math.sin(p.angle!),Math.cos(p.angle!)]),p.def.area!,4.5);
       force=add(force,mul(unit(vb),-dynamicPressure*p.def.area!*.018));
     }
     return {force,torque,q:dynamicPressure,mach,aoa,drag:-dot(force,unit(vb))};

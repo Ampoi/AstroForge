@@ -1,6 +1,6 @@
 /** Shared domain contracts. Distances are metres, masses kg and angles radians. */
 export type PartType =
-  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel";
+  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel" | "lidar2d" | "lidar3d" | "camera" | "startracker" | "servo" | "linear" | "docking";
 export interface PartDefinition {
   name: string;
   label: string;
@@ -49,6 +49,7 @@ export interface Assembly {
 }
 export type Design = Craft | Assembly;
 export interface LayoutPart extends AssemblyPart {
+  rotation?: number[];
   def: PartDefinition;
   connected?: boolean;
 }

@@ -86,6 +86,8 @@ const categories = [
   ["electrical", "電源"],
   ["structure", "構造"],
   ["mobility", "走行"],
+  ["sensors", "計測"],
+  ["robotics", "機構"],
 ];
 function closeOnBackdrop(event: MouseEvent) {
   const dialog = event.currentTarget as HTMLDialogElement;

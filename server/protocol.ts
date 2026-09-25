@@ -4,6 +4,13 @@ import {errorMessage} from '../shared/errors.ts';
 import {randomUUID} from 'node:crypto';
 import {appendObservations} from './observations.ts';
 import {EARTH} from './physics.ts';
+import {portState,releaseDock} from './docking.ts';
+import {jointStates} from './motors.ts';
+import {isJoint} from '../shared/articulation.ts';
+import {SeparationJournal} from './separation-journal.ts';
+import {Sensors} from './sensors.ts';
+import {PartIdentity} from './part-identity.ts';
+import {vesselModel} from './model-transfer.ts';
 import {wheelGeometry} from './rover.ts';
 import {PARTS,WHEEL,splitCraft,stages} from '../shared/craft.ts';
 import {add,sub,mul,dot,cross,norm,clamp,rotate,qconj,qmul,axisAngle} from '../shared/math.ts';
@@ -18,16 +25,19 @@ function requireValue(ok: unknown,reason: string | null): asserts ok{if(!ok)thro
 export class PylonProtocol{
   sim: Simulation; clock: ()=>number; instance: string; generation=0; observation=0; started: number;
   received=0; accepted=0; rejected=0; available=false; timeScale=1; epoch=''; vessel='';
+  journal=new SeparationJournal(this);
+  partIds:PartIdentity; sensors:Sensors; nextModel=0;
   sequences=new Map<string,number>();
   lastCommand: {time:number;type:string;accepted:boolean;reason:string} | null=null;
   owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason:''};
 
   constructor(sim: Simulation,clock=()=>performance.now()/1000){
-    this.sim=sim;this.clock=clock;this.instance=randomUUID().replaceAll('-','');this.generation=0;this.observation=0;this.started=clock();
+    this.sim=sim;this.partIds=sim.partIds;this.sensors=new Sensors(this.partIds);this.clock=clock;this.instance=randomUUID().replaceAll('-','');this.generation=0;this.observation=0;this.started=clock();
     this.received=0;this.accepted=0;this.rejected=0;this.lastCommand=null;this.available=false;this.newSession();
   }
   newSession(){
-    this.generation++;this.epoch=randomUUID().replaceAll('-','');this.vessel=randomUUID().replaceAll('-','');this.sequences=new Map();this.clearOwner('session_changed');this.sim.clearCommands();
+    this.sensors.reset();this.nextModel=0;
+    this.generation++;this.epoch=randomUUID().replaceAll('-','');this.vessel=randomUUID().replaceAll('-','');this.sim.vesselIdentity=this.vessel;this.sequences=new Map();this.clearOwner('session_changed');this.sim.clearCommands();
   }
   clearOwner(reason: string){this.owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason};this.sim.clearCommands();}
   expire(){
@@ -81,9 +91,25 @@ export class PylonProtocol{
   validateOperation(p: WireCommand){
     if(p.type==='pylon_actuator_command'&&p.actuatorType==='separation'){
       requireValue(boolean(p.separate),'invalid_separation');
+      const operation=p.separate?this.journal.prepare(p):null;
+      if(operation?.replay)return {stream:`separation:${p.name}`,apply:operation.apply};
       requireValue(this.sim.craft.parts.some(c=>c.id===p.name&&c.type==='decoupler'),'unknown_actuator');
       if(p.separate){const issue=this.sim.separationIssue(p.name);requireValue(!issue,issue);}
-      return {stream:`separation:${p.name}`,apply:()=>{if(p.separate)this.sim.separate(p.name);}};
+      return {stream:`separation:${p.name}`,apply:()=>{operation?.apply();this.nextModel=0;}};
+    }
+    if(p.type==='pylon_docking_port_command'){
+      requireValue(this.sim.craft.parts.some(c=>c.id===p.name&&c.type==='docking'),'unknown_docking_port');
+      requireValue(typeof p.action==='number'&&[1,2,3].includes(p.action),'invalid_docking_action');
+      if(p.action===3)requireValue(portState(this.sim,p.name).docked,'docking_port_not_docked');
+      return {stream:`docking:${p.name}`,apply:()=>{if(p.action===1)this.sim.selectedDockingCamera=p.name;else if(p.action===2){if(this.sim.selectedDockingCamera===p.name)this.sim.selectedDockingCamera=null;}else releaseDock(this.sim,p.name);}};
+    }
+    if(p.type==='pylon_motor_command'){
+      const part=this.sim.craft.parts.find(c=>c.id===p.name&&isJoint(c.type));requireValue(part,'unknown_actuator');
+      requireValue(range(p.timeoutSeconds,.05,10)&&['position','velocity','effort'].includes(String(p.mode)),'invalid_motor_command');
+      requireValue(boolean(p.hasEnabled)&&boolean(p.enabled),'invalid_motor_command');
+      const mode=p.mode as 'position'|'velocity'|'effort',flag={position:'hasPosition',velocity:'hasVelocity',effort:'hasEffort'}[mode];
+      requireValue(!p.enabled||(p[flag]===true&&finite(p[mode])),'invalid_motor_command');
+      return {stream:`motor:${p.name}`,apply:()=>{this.sim.motors[p.name]={enabled:p.enabled,mode,position:finite(p.position)?p.position:0,velocity:finite(p.velocity)?p.velocity:0,effort:finite(p.effort)?p.effort:0,expires:this.clock()+p.timeoutSeconds};}};
     }
     const expires=this.clock()+p.timeoutSeconds;
     requireValue(range(p.timeoutSeconds,.05,p.type==='pylon_flight_control_command'?1:10),'invalid_timeout');
@@ -137,7 +163,10 @@ export class PylonProtocol{
   receive(data: Buffer){
     this.received++;this.expire();let p: WireCommand | undefined;
     try{
-      requireValue(data.length<=32768,'packet_too_large');p=JSON.parse(data.toString('utf8')) as WireCommand;this.checkEnvelope(p);
+      requireValue(data.length<=32768,'packet_too_large');p=JSON.parse(data.toString('utf8')) as WireCommand;
+      if(p?.type==='pylon_separation_query'){requireValue(p.version===1,'invalid_envelope');return this.packet('pylon_separation_result',this.journal.query(p));}
+      if(p?.type==='pylon_actuator_command'&&p.version===1&&p.actuatorType==='separation'&&p.separate===true){const replay=this.journal.replay(p);if(replay)return this.packet('pylon_separation_result',replay);}
+      this.checkEnvelope(p);
       if(p.type==='pylon_control_authority_command')this.authorityCommand(p);
       else{this.authorize(p);if(p.type==='pylon_control_batch')this.batch(p);else{const op=this.validateOperation(p),key=this.checkSequence(p,op.stream);this.advance(p,key);op.apply();}this.owner.reason='command_accepted';}
       this.accepted++;this.lastCommand={time:this.clock(),type:p.type,accepted:true,reason:this.owner.reason};
@@ -174,10 +203,13 @@ export class PylonProtocol{
       linearVelocity:enu(sv),angularVelocity:enu(rotate(s.quaternion,av)),linearVelocityBody:s.surfaceVelocityBody,angularVelocityBody:av,
       linearAcceleration:fixedAcceleration,angularAcceleration:enu(rotate(s.quaternion,this.sim.angularAcceleration)),frameAngularVelocity:enu(spin)
     }));
+    const nearby=this.sim.environmentBodies().filter(b=>b!==this.sim&&b.status!=='destroyed'&&Math.abs(b.time-s.time)<1e-6&&norm(sub(b.position,s.position))<=2500).slice(0,32);
+    packets.push(this.packet('pylon_nearby_vessels',{originSequence:this.generation,position:sub(enu(s.position),[0,0,EARTH.radius+this.sim.padHeight]),linearVelocity:enu(sv),vessels:nearby.map(b=>({vesselId:b.vesselIdentity,vessel:b.craft.name,isDebris:b.passive,position:sub(enu(b.position),[0,0,EARTH.radius+this.sim.padHeight]),linearVelocity:enu(sub(b.velocity,cross(spin,b.position)))}))}));
     packets.push(this.authority());
-    const actuators=this.sim.craft.parts.filter(p=>['engine','rcs','decoupler','wheel'].includes(p.type)).map(p=>({name:p.id,actuatorType:p.type==='decoupler'?'separation':p.type,partId:p.id}));
+    const actuators=this.sim.craft.parts.filter(p=>['engine','rcs','decoupler','wheel','servo','linear'].includes(p.type)).map(p=>({name:p.id,actuatorType:p.type==='decoupler'?'separation':isJoint(p.type)?'motor':p.type,partId:p.id}));
     packets.push(this.packet('pylon_actuator_manifest',{actuators}));
     for(const a of actuators){
+      if(a.actuatorType==='motor'){const state=jointStates(this.sim)[a.name],joint=this.sim.craft.parts.find(p=>p.id===a.name)!;packets.push(this.packet('pylon_motor_state',{...a,...state,jointType:joint.type==='servo'?'revolute':'prismatic',vessel:s.craft.name,partFlightId:this.partIds.get(a.name)}));packets.push(this.packet('pylon_actuator_state',{...a,...state}));continue;}
       if(a.actuatorType==='separation'){
         packets.push(this.packet('pylon_actuator_state',{...a,mechanism:'decoupler',available:!this.sim.separationIssue(a.name),separated:false}));continue;
       }
@@ -211,6 +243,18 @@ export class PylonProtocol{
       const ratio=norm([...residual.force,...residual.torque])/Math.max(1,norm([...w.force,...w.torque]));
       packets.push(this.packet('pylon_wrench_status',{controllerId:w.controllerId,leaseId:w.leaseId,sequence:w.sequence,accepted:w.expires>now,reason:w.expires>now?'allocated':'command_expired',requested:{force:w.force,torque:w.torque},allocated:achieved,achieved,allocationResidual:residual,trackingResidual:{force:[0,0,0],torque:[0,0,0]},saturationRatio:ratio,trackingErrorRatio:0,saturated:ratio>.001,achievedQuality:'simulated'}));
     }
+    const ports=this.sim.craft.parts.filter(p=>p.type==='docking').map(p=>({name:p.id,partFlightId:this.partIds.get(p.id),moduleIndex:0}));
+    packets.push(this.packet('pylon_docking_port_manifest',{ports}));
+    for(const port of ports){const {partner,...state}=portState(this.sim,port.name);packets.push(this.packet('pylon_docking_port_state',{...port,...state,partnerPartFlightId:state.docked&&partner?partner.partIds.get(state.partnerName):0}));}
+    for(const p of this.sim.props.parts){
+      const state=this.sim.thermals[p.id]??{temperature:288.15,skinTemperature:288.15};
+      packets.push(this.packet('pylon_part_thermal_state',{partFlightId:this.partIds.get(p.id),partPersistentId:this.partIds.get(p.id),partName:p.id,...state,maxTemperature:p.type==='engine'?2000:1200,maxSkinTemperature:p.type==='engine'?2400:1500,shieldedFromAirstream:false,electricCharge:s.charge,electricCapacity:s.stats.power}));
+    }
+    if(s.status!=='destroyed'){
+      if(now>=this.nextModel){this.nextModel=now+.5;for(const model of vesselModel(this.sim,this.epoch,this.vessel,this.partIds))packets.push(this.packet('pylon_vessel_urdf_chunk',model));}
+      packets.push(...this.sensors.sample(this.sim,this.epoch,(type,fields)=>this.packet(type,fields)));
+    }
+    packets.push(...this.journal.packets().map(result=>this.packet('pylon_separation_result',result)));
     appendObservations(packets,this.sim,(type,fields)=>this.packet(type,fields));
     return packets;
   }

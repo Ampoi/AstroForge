@@ -1,13 +1,21 @@
 import type {Craft, Part, PartType, PartDefinition, LayoutPart} from './types.ts';
 import {record, errorMessage} from './errors.ts';
-import {add,mul,sub,dot,inverse3} from './math.ts';
+import {add,mul,sub,dot,inverse3,rotate} from './math.ts';
 
+export function sensorName(id:string){const value=id.replace(/_+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()||'sensor';return /^\d/.test(value)?'_'+value:value;}
 export const DIAMETER=1.25;
 export const G0=9.80665;
 // The surrounding ground is below the launch deck (deck altitude = 0).
 export const GROUND_ALTITUDE=-1.12;
 export const WHEEL={radius:.45,extension:.55,travel:.4,spring:18000,damper:850,trackOffset:.32,motorForce:900,maxSpeed:12,grip:.85};
 const definitions={
+  docking:{name:'ドッキングポート',label:'DP-30 Capture port',category:'structure',description:'低速で対向するポートを結合。UDPで切り離し・ポートカメラを操作。',mass:18,height:.3,width:.3,depth:.3,radial:true,color:'#bac9ce'},
+  servo:{name:'回転サーボ',label:'RJ-180 Stack hinge',category:'robotics',description:'機首側のパーツを機体Z軸周り±90°に回転。最大180 N·m。',mass:25,height:.4,width:.5,depth:.5,color:'#d9a651'},
+  linear:{name:'直動モーター',label:'LJ-2 Telescopic joint',category:'robotics',description:'機首側のパーツを軸方向へ0〜2 m伸縮。最大1500 N。',mass:30,height:.5,width:.5,depth:.5,color:'#91a5b0'},
+  lidar2d:{name:'2D LiDAR',label:'LS-360 Planar scanner',category:'sensors',description:'360方向・360°の距離走査。公開UDPでLaserScan互換データを配信。',mass:3,height:.2,width:.2,depth:.2,radial:true,color:'#52cfc0'},
+  lidar3d:{name:'3D LiDAR',label:'LS-3D Hemisphere scanner',category:'sensors',description:'512方向の半球距離走査。点群の復元に対応。',mass:5,height:.25,width:.25,depth:.25,radial:true,color:'#56aacd'},
+  camera:{name:'RGBカメラ',label:'CAM-64 Optical sensor',category:'sensors',description:'64×48 RGB画像・垂直視野60°。5 HzでUDP配信。',mass:2,height:.2,width:.2,depth:.2,radial:true,color:'#7b94b4'},
+  startracker:{name:'スタートラッカー',label:'ST-1 Attitude sensor',category:'sensors',description:'姿勢観測。大気・太陽・遮蔽・角速度による追尾喪失と再捕捉。',mass:4,height:.3,width:.3,depth:.3,radial:true,color:'#bca4d8'},
   pod:{name:'コマンドポッド',label:'CP-1 Pathfinder',category:'command',description:'フライトコンピューターと姿勢用リアクションホイール。',mass:220,height:1.25,color:'#e0e8e8',power:80,wheelTorque:180},
   tank:{name:'燃料タンク',label:'FT-1200 Propellant',category:'fuel',description:'液体燃料・酸化剤をまとめて搭載。スタックして容量を追加。',mass:90,height:2.4,fuel:1200,color:'#dce2de'},
   engine:{name:'液体燃料エンジン',label:'LE-60 Kestrel',category:'propulsion',description:'60 kN・ジンバル ±6°。推力はUDPで個別に指定。',mass:150,height:1.05,thrust:60000,isp:310,ispVac:345,color:'#9caab0'},
@@ -63,6 +71,9 @@ export function validateCraft(value: unknown): Craft{
     }
     return out;
   });
+  if(parts.filter(p=>['lidar2d','lidar3d','camera','startracker'].includes(p.type)).length>8)throw Error('センサーは1機体8個までです');
+  const sensorNames=parts.filter(p=>['lidar2d','lidar3d','camera','startracker'].includes(p.type)).map(p=>sensorName(p.id));
+  if(new Set(sensorNames).size!==sensorNames.length)throw Error('センサーIDは大文字・小文字を区別せず一意にしてください');
   const core=parts.filter(p=>!PARTS[p.type].radial);
   if(core.length<1||core[0].type!=='pod'||parts.filter(p=>p.type==='pod').length!==1)throw Error('先端にはコマンドポッドを1個配置してください');
   if(core.some((p,i)=>p.type==='engine'&&i!==core.length-1&&core[i+1].type!=='decoupler'))throw Error('エンジンの下には分離リングを配置してください');
@@ -110,15 +121,16 @@ export function layoutCraft(craft: Craft): LayoutPart[]{
     return {...p,position:pos,def:d};
   });
 }
-export function massProperties(craft: Craft,fuelFraction: number | Record<string, number>=1,monoFraction=1){
-  const parts=layoutCraft(craft).map(p=>({...p,mass:p.def.mass+(typeof fuelFraction==='number'?(p.def.fuel||0)*fuelFraction:(fuelFraction[p.id]||0))+(p.def.mono||0)*monoFraction}));
+export function massProperties(craft: Craft,fuelFraction: number | Record<string, number>=1,monoFraction=1,layout:LayoutPart[]=layoutCraft(craft)){
+  const parts=layout.map(p=>({...p,mass:p.def.mass+(typeof fuelFraction==='number'?(p.def.fuel||0)*fuelFraction:(fuelFraction[p.id]||0))+(p.def.mono||0)*monoFraction}));
   const mass=parts.reduce((s,p)=>s+p.mass,0);
   const com=mul(parts.reduce((s,p)=>add(s,mul(p.position,p.mass)),[0,0,0]),1/mass);
   const inertia=Array(9).fill(0);
   for(const p of parts){
     const r=sub(p.position,com),rr=dot(r,r),radius=p.def.radial?.18:DIAMETER/2;
     const own=p.def.width&&p.def.depth?[p.mass*(p.def.width**2+p.def.depth**2)/12,p.mass*(p.def.height**2+p.def.depth**2)/12,p.mass*(p.def.height**2+p.def.width**2)/12]:[p.mass*radius**2/2,p.mass*(3*radius**2+p.def.height**2)/12,p.mass*(3*radius**2+p.def.height**2)/12];
-    for(let i=0;i<3;i++)for(let j=0;j<3;j++)inertia[i*3+j]+=p.mass*((i===j?rr:0)-r[i]*r[j])+(i===j?own[i]:0);
+    const axes=[[1,0,0],[0,1,0],[0,0,1]].map(v=>rotate(p.rotation??[0,0,0,1],v));
+    for(let i=0;i<3;i++)for(let j=0;j<3;j++)inertia[i*3+j]+=p.mass*((i===j?rr:0)-r[i]*r[j])+axes.reduce((sum,axis,k)=>sum+axis[i]*axis[j]*own[k],0);
   }
   return {mass,com,inertia,inverseInertia:inverse3(inertia),parts};
 }

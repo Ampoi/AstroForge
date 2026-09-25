@@ -38,7 +38,14 @@ function makeSolarTexture(){
 }
 export function makePart(type: PartType, merge=true){
   const g=new THREE.Group();
-  if(type==='chassis'){
+  if(type==='servo'||type==='linear'){
+    put(g,box(.5,PARTS[type].height,.5,PARTS[type].color));
+    if(type==='linear'){const shaft=put(g,cyl(.12,.12,1,'#a9b7bb',.8),0,PARTS[type].height/2);shaft.name='linear-extension';shaft.scale.y=.001;}
+    else{const hinge=put(g,cyl(.27,.27,.55,'#3e555e',.8));hinge.rotation.x=Math.PI/2;}
+  }else if(['lidar2d','lidar3d','camera','startracker','docking'].includes(type)){
+    put(g,box(.22,.2,.2,PARTS[type].color),.11);
+    const lens=put(g,cyl(.075,.075,.05,'#123c49',.5),.24);lens.rotation.z=Math.PI/2;
+  }else if(type==='chassis'){
     put(g,box(1.8,4,.45,'#b8c1ac',.55));
     for(const x of [-.83,.83])put(g,box(.09,3.9,.52,'#526168',.7),x);
     for(const y of [-1.8,0,1.8])put(g,box(1.7,.08,.48,'#e3a865',.6),0,y);
@@ -353,12 +360,21 @@ export class RocketScene{
       if(g&&g.userData.signature!==signature){this.scene.remove(g);disposeGroup(g);this.debrisGroups.delete(d.id);g=undefined;}
       if(!g){
         g=new THREE.Group();g.userData.signature=signature;
-        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.type==='wheel')part.scale.x=-Math.cos(p.angle!)||1;else if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
+        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.userData.partId=p.id;part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.type==='wheel')part.scale.x=-Math.cos(p.angle!)||1;else if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
         this.scene.add(g);this.debrisGroups.set(d.id,g);
       }
     }
   }
   renderFlight(f: FlightSnapshot,now: number){
+    const toModel=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);
+    for(const pose of f.partPoses??[]){
+      const g=this.groups.get(pose.id),part=f.craft.parts.find(p=>p.id===pose.id);if(!g||!part)continue;
+      g.position.set(-pose.position[1],pose.position[0],pose.position[2]);
+      const rotation=toModel.clone().multiply(new THREE.Quaternion(...pose.rotation)).multiply(toModel.clone().invert());
+      if(PARTS[part.type].radial&&part.type!=='wheel')rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),part.angle!+Math.PI));
+      g.quaternion.copy(rotation);
+    }
+    for(const joint of f.joints??[]){const shaft=this.groups.get(joint.id)?.getObjectByName('linear-extension');if(shaft){shaft.position.y=PARTS.linear.height/2+joint.position/2;shaft.scale.y=Math.max(.001,joint.position);}}
     for(const w of f.wheels||[]){
       const g=this.groups.get(w.id);if(!g)continue;
       const suspension=g.getObjectByName('suspension'),steering=g.getObjectByName('steering'),tire=g.getObjectByName('tire'),spring=g.getObjectByName('spring');
@@ -380,6 +396,14 @@ export class RocketScene{
     this.rocket.position.set(-modelCom.x,this.stats.height/2-modelCom.y,-modelCom.z);
     for(const d of f.debris){
       const g=this.debrisGroups.get(d.id);if(!g)continue;
+      for(const pose of d.partPoses??[]){
+        const mesh=g.children.find(child=>child.userData.partId===pose.id),part=d.craft.parts.find(p=>p.id===pose.id);if(!mesh||!part)continue;
+        mesh.position.set(-pose.position[1],pose.position[0],pose.position[2]);
+        const rotation=toModel.clone().multiply(new THREE.Quaternion(...pose.rotation)).multiply(toModel.clone().invert());
+        if(PARTS[part.type].radial&&part.type!=='wheel')rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),part.angle!+Math.PI));
+        mesh.quaternion.copy(rotation);
+        const shaft=mesh.getObjectByName('linear-extension'),joint=d.joints?.find(j=>j.id===pose.id);if(shaft&&joint){shaft.position.y=PARTS.linear.height/2+joint.position/2;shaft.scale.y=Math.max(.001,joint.position);}
+      }
       g.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...d.quaternion)).multiply(modelToBody);
       const offset=earthFixed(d.position.map((v,i)=>v-f.position[i]),f.time),com=new THREE.Vector3(-d.com[1],d.com[0],d.com[2]).applyQuaternion(g.quaternion);
       g.position.copy(offset).add(new THREE.Vector3(0,this.stats.height/2,0)).sub(com);g.visible=offset.length()<25000;

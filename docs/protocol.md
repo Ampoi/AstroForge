@@ -120,10 +120,10 @@ sequenceは制御権・姿勢・wrench・各アクチュエータ・batchの系�
 
 ## PyLoNとの対応範囲
 
-[PyLoN v1の参照リビジョン](https://github.com/PyLoN-sim/PyLoN/tree/d62d948064d6665702d05957a669596244dca8da)のうち、飛行制御に関係するサブセットに対応します。パーツ名はAstroForgeの保存パーツIDなので、固定名を前提にせずmanifestから取得してください。KSP用の制御ゲイン・質量・重力・推力パラメーターをそのまま流用できるとは限りません。
+[PyLoN v1の参照リビジョン](https://github.com/PyLoN-sim/PyLoN/tree/d62d948064d6665702d05957a669596244dca8da)を参照して実装しています。飛行制御・車輪・搭載センサー・可動機構・観測に対応します。パーツ名はAstroForgeの保存パーツIDなので、固定名を前提にせずmanifestから取得してください。KSP用の制御ゲイン・質量・重力・推力パラメーターをそのまま流用できるとは限りません。
 
 車輪はPyLoNの目標角速度・操舵角・駆動トルク指令と状態配信に対応しています（[ローバー](./rover)）。
 
-LiDAR、カメラ、スタートラッカー、URDF/モデル転送、パーツ温度、近隣機体、ロボティクスmotor、分離結果ジャーナル（`pylon_separation_result/query`）、ドッキング、UDPパケット単独での制御対象切り替え、ROSサーバーは未実装です。
+LiDAR、RGBカメラ、スタートラッカー、URDF/TF、パーツ温度、近隣機体、ロボティクスmotor、分離結果ジャーナル、ドッキング、標準ROS2 bridgeと汎用制御ノードについては[センサー・可動機構・ドッキング・ROS2](./systems)を参照してください。近似モデルと上流との差も記載しています。UDPパケット単独での制御対象切り替えとKSP用craft-builderは未対応です。
 
 動くクライアントの例は[Node.jsデモ](https://github.com/Ampoi/AstroForge/blob/main/examples/demo-controller.ts)と[Pythonサンプル](https://github.com/Ampoi/AstroForge/blob/main/examples/launch.py)にあります。本体への機能追加は[貢献](./contributing)を参照してください。

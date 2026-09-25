@@ -2,6 +2,7 @@ import type {PhysicsBody, PhysicsKernel} from './types.ts';
 import type {ForceTorque} from '../shared/types.ts';
 interface WasmApi { memory: WebAssembly.Memory; abi_version():number; input_len():number; output_len():number; input_ptr():number; output_ptr():number; integrate(count:number):number; evaluate_aero(count:number):number; evaluate_atmosphere(alt:number):number }
 import {readFileSync} from 'node:fs';
+import {rotate} from '../shared/math.ts';
 import {javascriptKernel} from './physics-reference.ts';
 
 const HEADER=43,FIN_STRIDE=7,MAX_FINS=80;
@@ -33,8 +34,7 @@ export function createWasmKernel(bytes: BufferSource=readWasm()): PhysicsKernel 
         if(part.type!=='fin')continue;
         if(count===MAX_FINS)throw RangeError(`Physics supports at most ${MAX_FINS} fins`);
         const offset=HEADER+count++*FIN_STRIDE;
-        input.set(part.position,offset);input[offset+3]=0;
-        input[offset+4]=-Math.sin(part.angle!);input[offset+5]=Math.cos(part.angle!);input[offset+6]=part.def.area!;
+        input.set(part.position,offset);input.set(rotate(part.rotation??[0,0,0,1],[0,-Math.sin(part.angle!),Math.cos(part.angle!)]),offset+3);input[offset+6]=part.def.area!;
       }
       body.parts=sim.props.parts;body.count=count;
     }

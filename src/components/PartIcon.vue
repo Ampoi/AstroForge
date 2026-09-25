@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import type { PartType } from "../../shared/types.ts";
 defineProps<{ type: PartType }>();
+const sensor='<rect x="10" y="12" width="27" height="28" rx="4" fill="#627a94"/><circle cx="24" cy="26" r="9" fill="#143040" stroke="#6ed9d0" stroke-width="3"/>';
 const shapes: Record<PartType, string> = {
+  docking:'<circle cx="23" cy="26" r="17" fill="#bac9ce"/><circle cx="23" cy="26" r="11" fill="#263f4b"/><path d="M7 23h7M32 23h7M20 10v7M20 35v7" stroke="#e5b569" stroke-width="4"/>',
+  servo:'<rect x="7" y="10" width="31" height="31" rx="4" fill="#d9a651"/><circle cx="23" cy="25" r="10" fill="#334b55"/><path d="M23 25 37 10" stroke="#bac9ce" stroke-width="6"/>',
+  linear:'<path d="M19 5h8v22h-8Z" fill="#b9c8ce"/><path d="M12 23h22v23H12Z" fill="#617b88"/><path d="M14 22h18M14 46h18M16 5h14" stroke="#e5b569" stroke-width="3"/>',
+  lidar2d:sensor,lidar3d:sensor,camera:sensor,startracker:sensor,
   chassis: '<path d="M4 15h34v25H4Z" fill="#b8c1ac"/><path d="m4 15 7-7h31l-4 7ZM38 15l4-7v25l-4 7" fill="#71867c"/><path d="M9 16v23M33 16v23" stroke="#e3a865" stroke-width="3"/>',
   wheel: '<path d="M5 6h8v20H5Z" fill="#e7b660"/><circle cx="26" cy="30" r="18" fill="#30383d" stroke="#687779" stroke-width="3"/><circle cx="26" cy="30" r="10" fill="#b1babc"/><circle cx="26" cy="30" r="4" fill="#526168"/>',
   pod: '<path d="m17 5-9 30h28L27 5Z" fill="#cedbd9"/><path d="M8 35h28v5H8Z" fill="#667f8a"/><path d="M17 18h10l2 8H15Z" fill="#233e51"/><path d="M19 7h6" stroke="#f4f5ed" stroke-width="2"/>',
