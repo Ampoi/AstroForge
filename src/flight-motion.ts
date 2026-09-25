@@ -9,7 +9,12 @@ function blend(a: FlightSnapshot, b: FlightSnapshot, t: number): FlightSnapshot 
   const scalar = (x: number, y: number) => x + (y - x) * t;
   const vector = (x: number[], y: number[]) => x.map((v, i) => scalar(v, y[i]));
   const q = new Quaternion().fromArray(a.quaternion).slerp(new Quaternion().fromArray(b.quaternion), t);
-  return {...b, time: scalar(a.time, b.time), position: vector(a.position, b.position),
+  const wheels=(b.wheels||[]).map(w=>{
+    const old=a.wheels?.find(v=>v.id===w.id);if(!old)return w;
+    const delta=Math.atan2(Math.sin(w.rotation-old.rotation),Math.cos(w.rotation-old.rotation));
+    return {...w,compression:scalar(old.compression,w.compression),steering:scalar(old.steering,w.steering),rotation:old.rotation+delta*t};
+  });
+  return {...b, wheels, time: scalar(a.time, b.time), position: vector(a.position, b.position),
     quaternion: q.toArray(), com: vector(a.com, b.com), altitude: scalar(a.altitude, b.altitude)};
 }
 

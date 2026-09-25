@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {GROUND_ALTITUDE} from '../shared/craft.ts';
 
 // Metres; the launch deck is y=0 so the engine remains at the physics contact plane.
 export function makeLaunchSite(){
@@ -13,7 +14,7 @@ export function makeLaunchSite(){
     const map=new THREE.CanvasTexture(c);map.colorSpace=THREE.SRGBColorSpace;
     const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshStandardMaterial({map,roughness:.8}));m.position.set(x,y,z);parent.add(m);
   }
-  const ground=new THREE.Mesh(new THREE.CircleGeometry(2400,128),mat('grass'));ground.rotation.x=-Math.PI/2;ground.position.y=-1.12;ground.receiveShadow=true;site.add(ground);
+  const ground=new THREE.Mesh(new THREE.CircleGeometry(2400,128),mat('grass'));ground.rotation.x=-Math.PI/2;ground.position.y=GROUND_ALTITUDE;ground.receiveShadow=true;site.add(ground);
   block(92,.35,92,0,-1.02,0,'concrete');
   // Concrete deck surrounds an open, dark flame duct extending toward -Z.
   block(11,1,13,-7,-.5,0,'concrete');block(11,1,13,7,-.5,0,'concrete');block(3,1,4,0,-.5,4.5,'concrete');

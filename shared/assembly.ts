@@ -73,7 +73,7 @@ export function assemblyLayout(craft: Design): LayoutPart[]{
   return craft.parts.map(p=>({...p,def:PARTS[p.type],connected:ids.has(p.id)}));
 }
 function surfacePosition(parent: AssemblyPart,type: PartType,offset: number,angle: number){
-  const radius=surfaceRadius(parent.type,offset)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[type]||0);
+  const radius=surfaceRadius(parent.type,offset,angle)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[type]||0);
   return [parent.position[0]+offset*PARTS[parent.type].height,parent.position[1]+Math.cos(angle)*radius,parent.position[2]+Math.sin(angle)*radius];
 }
 function endPosition(p: AssemblyPart,side: number){return [p.position[0]+side*PARTS[p.type].height/2,...p.position.slice(1)];}
@@ -95,10 +95,11 @@ export function resolveAssemblyPlacement(craft: Assembly,type: PartType,hit: Sur
       let nearest=SNAP_DISTANCE;const rawOffset=offset,rawAngle=angle;
       for(const level of SURFACE_LEVELS)for(const a of SURFACE_ANGLES){
         const delta=Math.atan2(Math.sin(rawAngle-a),Math.cos(rawAngle-a));
-        const d=Math.hypot((rawOffset-level)*PARTS[target.type].height,delta*surfaceRadius(target.type,rawOffset));
+        const d=Math.hypot((rawOffset-level)*PARTS[target.type].height,delta*surfaceRadius(target.type,rawOffset,rawAngle));
         if(d<nearest){nearest=d;offset=level;angle=a;snapped=true;}
       }
     }
+    if(type==='wheel')angle=Math.cos(angle)>=0?0:Math.PI;
     return {kind:'surface',parent:target.id,offset,angle,snapped,position:surfacePosition(target,type,offset,angle)};
   }
   if(!snap)return free;
@@ -124,6 +125,7 @@ export function placeAssembly(craft: Assembly,type: PartType,placement: Assembly
   let p=result.parts.find(p=>p.id===movingId),ids=movingIds(result,movingId),roots: AssemblyPart[]=[];
   if(!p){
     count=PARTS[type].radial&&placement.kind==='surface'?(mirror?2:count):1;
+    if(type==='wheel')count=Math.min(count,2);
     if(result.parts.length+count>80)throw Error('パーツは80個まで配置できます');
     const group=count>1?idFactory('group',0):undefined;
     for(let i=0;i<count;i++){

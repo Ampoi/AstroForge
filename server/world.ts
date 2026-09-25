@@ -1,6 +1,6 @@
 import type {Craft} from '../shared/types.ts';
 import {Simulation,STEP,EARTH} from './physics.ts';
-import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp} from '../shared/math.ts';
+import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp,qmul,qconj} from '../shared/math.ts';
 
 export const TIME_SCALES=[1,2,5,10];
 const alive=(body: Simulation)=>body.status!=='destroyed';
@@ -40,7 +40,7 @@ export class FlightWorld{
   add(craft: Craft){
     const body=new Simulation(craft);
     const rotation=axisAngle([0,0,1],EARTH.spin*this.time);
-    body.position=rotate(rotation,body.position);body.quaternion=rotation;body.velocity=cross([0,0,EARTH.spin],body.position);
+    body.position=rotate(rotation,body.position);body.quaternion=qmul(rotation,body.quaternion);body.omega=rotate(qconj(body.quaternion),[0,0,EARTH.spin]);body.velocity=cross([0,0,EARTH.spin],body.position);
     // Only an unlaunched pad occupant is replaced; existing flights keep running.
     const occupant=this.vehicles.find(v=>v.status==='pad');
     const nearPad=this.bodies.some(v=>v!==occupant&&alive(v)&&norm(sub(v.position,body.position))<v.stats.height+body.stats.height+4);

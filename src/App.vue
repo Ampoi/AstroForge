@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import PartIcon from "./components/PartIcon.vue";
-import { PARTS } from "../shared/craft.ts";
+import { PARTS, isRover } from "../shared/craft.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
   displayRate,
@@ -85,6 +85,7 @@ const categories = [
   ["propulsion", "推進"],
   ["electrical", "電源"],
   ["structure", "構造"],
+  ["mobility", "走行"],
 ];
 function closeOnBackdrop(event: MouseEvent) {
   const dialog = event.currentTarget as HTMLDialogElement;
@@ -113,7 +114,7 @@ function closeOnBackdrop(event: MouseEvent) {
           <span class="eyebrow">COMPONENT LIBRARY</span>
           <h1>パーツライブラリ</h1>
         </div>
-        <span class="count-badge">08</span>
+        <span class="count-badge">{{ Object.keys(PARTS).length }}</span>
       </div>
       <div class="category-tabs" aria-label="パーツ分類">
         <button
@@ -167,7 +168,7 @@ function closeOnBackdrop(event: MouseEvent) {
       </div>
     </aside>
     <main id="viewport" class="viewport">
-      <div id="scene" ref="sceneElement" aria-label="ロケットの3D表示">
+      <div id="scene" ref="sceneElement" aria-label="機体の3D表示">
         <p v-if="sceneError" class="px-8 pt-56 text-orange-200">
           3D表示にはWebGLが必要です。ブラウザのハードウェアアクセラレーションを有効にして再読み込みしてください。
         </p>
@@ -248,7 +249,7 @@ function closeOnBackdrop(event: MouseEvent) {
                     vehicle.craft.name
                   }}</strong
                   ><small
-                    >{{ phase[vehicle.status]
+                    >{{ vehicle.wheels.length && vehicle.status === "flying" ? "地表走行" : phase[vehicle.status]
                     }}{{ vehicle.passive ? " · 分離物" : "" }}</small
                   >
                 </div>
@@ -285,7 +286,7 @@ function closeOnBackdrop(event: MouseEvent) {
                         >受信 :{{ vehicle.udp.commandPort }} · 送信 :{{
                           vehicle.udp.telemetryPort
                         }}</code
-                      ><button
+                      ><a v-if="vehicle.wheels.length" href="/docs/rover" target="_blank" rel="noreferrer">車輪の操作方法 ↗</a><button v-else
                         :data-copy-udp="vehicle.id"
                         title="この機体のデモ起動コマンドをコピー"
                         @click="copyDemo(vehicle.udp)"
@@ -486,7 +487,11 @@ function closeOnBackdrop(event: MouseEvent) {
         </button>
       </div>
       <div id="flight-hud" class="flight-hud" :hidden="!flying">
-        <div class="hud-main">
+        <div v-if="focused?.wheels.length" class="hud-main">
+          <span>GROUND SPEED</span><strong>{{ num(focused.speed, 1) }}<span>m/s</span></strong>
+          <span>接地 {{ focused.wheels.filter(w => w.grounded).length }} / {{ focused.wheels.length }} 輪</span>
+        </div>
+        <div v-else class="hud-main">
           <span>ALTITUDE</span
           ><strong id="hud-altitude"
             ><template v-if="focused?.status === 'destroyed'">—</template
@@ -689,7 +694,7 @@ function closeOnBackdrop(event: MouseEvent) {
               @click="undo"
             >
               ↶ 戻す</button
-            ><button id="reset-button" @click="reset('starter')">1段機体</button
+            ><button id="rover-button" @click="reset('rover')">ローバー</button><button id="reset-button" @click="reset('starter')">1段機体</button
             ><button id="empty-button" @click="reset('empty')">空にする</button>
           </div>
           <button
@@ -698,9 +703,10 @@ function closeOnBackdrop(event: MouseEvent) {
             :disabled="!connected || !!issues.length"
             @click="launch"
           >
-            <span>発射台へ</span><span>↗</span>
+            <span>{{ isRover(active) ? "地表へ" : "発射台へ" }}</span><span>↗</span>
           </button>
-          <p>
+          <p v-if="isRover(active)">車輪名を指定して駆動・操舵・制動を操作します。<a href="/docs/rover" target="_blank" rel="noreferrer">ローバーの操作方法 ↗</a></p>
+          <p v-else>
             別ターミナルで
             <code data-demo-command>{{
               demoCommand() ?? "機体一覧でUDPをONにしてください"
@@ -813,7 +819,8 @@ function closeOnBackdrop(event: MouseEvent) {
         </p>
       </div>
     </div>
-    <div class="command-box">
+    <p v-if="focused?.wheels.length"><a href="/docs/rover" target="_blank" rel="noreferrer">ローバーのUDP操作手順 ↗</a> — 車輪名ごとにモーター・操舵・ブレーキを指定します。</p>
+    <div v-else class="command-box">
       <code data-demo-command>{{
         demoCommand() ?? "機体一覧でUDPをONにしてください"
       }}</code
@@ -861,7 +868,7 @@ function closeOnBackdrop(event: MouseEvent) {
       <div v-for="entry in library" :key="entry.id" class="library-entry">
         <div>
           <span class="eyebrow">{{
-            ["starter", "two-stage"].includes(entry.id)
+            ["starter", "two-stage", "rover"].includes(entry.id)
               ? "PRESET"
               : "SAVED VEHICLE"
           }}</span
@@ -879,7 +886,7 @@ function closeOnBackdrop(event: MouseEvent) {
             class="library-launch"
             @click="launchSaved(entry.id)"
           >
-            発射台へ ↗
+            {{ isRover(entry.craft) ? "地表へ" : "発射台へ" }} ↗
           </button>
         </div>
       </div>

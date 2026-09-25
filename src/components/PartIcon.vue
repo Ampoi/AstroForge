@@ -2,6 +2,8 @@
 import type { PartType } from "../../shared/types.ts";
 defineProps<{ type: PartType }>();
 const shapes: Record<PartType, string> = {
+  chassis: '<path d="M4 15h34v25H4Z" fill="#b8c1ac"/><path d="m4 15 7-7h31l-4 7ZM38 15l4-7v25l-4 7" fill="#71867c"/><path d="M9 16v23M33 16v23" stroke="#e3a865" stroke-width="3"/>',
+  wheel: '<path d="M5 6h8v20H5Z" fill="#e7b660"/><circle cx="26" cy="30" r="18" fill="#30383d" stroke="#687779" stroke-width="3"/><circle cx="26" cy="30" r="10" fill="#b1babc"/><circle cx="26" cy="30" r="4" fill="#526168"/>',
   pod: '<path d="m17 5-9 30h28L27 5Z" fill="#cedbd9"/><path d="M8 35h28v5H8Z" fill="#667f8a"/><path d="M17 18h10l2 8H15Z" fill="#233e51"/><path d="M19 7h6" stroke="#f4f5ed" stroke-width="2"/>',
   tank: '<rect x="11" y="4" width="24" height="43" rx="3" fill="#cdd6d1"/><path d="M11 7h24M11 44h24" stroke="#8fa39f" stroke-width="3"/><path d="M11 37h24" stroke="#e6956b" stroke-width="4"/><path d="M15 18h16M15 21h12" stroke="#758d93"/>',
   engine:

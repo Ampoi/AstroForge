@@ -19,10 +19,11 @@ export function resolvePlacement(craft: Craft,type: PartType,hit: SurfaceHit | n
     if(snap){
       let nearest=SNAP_DISTANCE;const rawOffset=offset,rawAngle=angle;
       for(const level of SURFACE_LEVELS)for(const a of SURFACE_ANGLES){
-        const distance=Math.hypot((rawOffset-level)*part.def.height,wrap(rawAngle-a)*surfaceRadius(target.type,rawOffset));
+        const distance=Math.hypot((rawOffset-level)*part.def.height,wrap(rawAngle-a)*surfaceRadius(target.type,rawOffset,rawAngle));
         if(distance<nearest){nearest=distance;offset=level;angle=a;snapped=true;}
       }
     }
+    if(type==='wheel')angle=Math.cos(angle)>=0?0:Math.PI;
     return {kind:'surface',parent:target.id,offset,angle,snapped};
   }
   const core=craft.parts.filter(p=>!PARTS[p.type].radial),i=core.findIndex(p=>p.id===target.id);

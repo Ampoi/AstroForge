@@ -11,6 +11,8 @@ import {
   PARTS,
   starterCraft,
   twoStageCraft,
+  roverCraft,
+  isRover,
   validateCraft,
   craftStats,
   launchIssues,
@@ -119,14 +121,14 @@ export function useWorkshop() {
       : ["最初のルートパーツを配置してください"],
   );
   const warning = computed(
-    () => !!issues.value.length || stats.value.stability < 0,
+    () => !!issues.value.length || (!isRover(active.value) && stats.value.stability < 0),
   );
   const validation = computed(() =>
     issues.value.length
       ? "△ " + issues.value[0]
-      : stats.value.stability < 0
+      : (!isRover(active.value) && stats.value.stability < 0)
         ? "△ 空力中心が重心より前方です。翼を下方に追加すると安定します。"
-        : `✓ 発射準備OK · 静安定余裕 ${num(stats.value.stability, 1)} 口径（概算）`,
+        : isRover(active.value) ? "✓ 走行準備OK · 車輪ごとにUDPで駆動・操舵・制動" : `✓ 発射準備OK · 静安定余裕 ${num(stats.value.stability, 1)} 口径（概算）`,
   );
   const attached = computed(() => connectedIds(craft.value));
   const palette = computed(
@@ -176,7 +178,7 @@ export function useWorkshop() {
   );
   const subtitle = computed(() =>
     flying.value
-      ? `${focused.value ? phase[focused.value.status] : ""} · 飛行制御はUDPから`
+      ? `${focused.value?.wheels.length ? "地表走行" : focused.value ? phase[focused.value.status] : ""} · 制御はUDPから`
       : craft.value.rootId
         ? `接続 ${active.value.parts.length} 個 · 未接続 ${loose.value} 個 · 子パーツごとドラッグ`
         : "最初のパーツを配置してルートを作成",
@@ -227,6 +229,7 @@ export function useWorkshop() {
     return true;
   }
   function beginPart(type: PartType) {
+    if(type === "wheel" && symmetry.value > 2)setSymmetry(2);
     if (canPlace(type))
       scene?.setPlacement(type, {
         count: symmetry.value,
@@ -397,7 +400,7 @@ export function useWorkshop() {
     try {
       const state = await api("/api/editor", id ? { libraryId: id } : {});
       libraryId.value =
-        id && !["starter", "two-stage"].includes(id) ? id : null;
+        id && !["starter", "two-stage", "rover"].includes(id) ? id : null;
       history.value = [];
       dirty.value = false;
       applyState(state);
@@ -426,7 +429,7 @@ export function useWorkshop() {
       focusId.value = state.activeVehicleId;
       applyState(state);
       window.scrollTo({ top: 0, behavior: "smooth" });
-      toast("発射台に配置しました。機体一覧でUDPをONにすると接続できます");
+      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
     } catch (error) {
       toast(errorMessage(error));
     }
@@ -440,7 +443,7 @@ export function useWorkshop() {
       applyState(state);
       scene?.fit();
       craftDialog.value?.close();
-      toast("発射台に配置しました。機体一覧でUDPをONにすると接続できます");
+      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
     } catch (error) {
       toast(errorMessage(error));
     }
@@ -477,14 +480,14 @@ export function useWorkshop() {
     selected.value = null;
     changed();
   }
-  function reset(kind: "starter" | "two-stage" | "empty") {
+  function reset(kind: "starter" | "two-stage" | "rover" | "empty") {
     stash();
     cancelPlacement();
     libraryId.value = null;
     craft.value =
       kind === "empty"
         ? emptyAssembly()
-        : toAssembly(kind === "starter" ? starterCraft() : twoStageCraft());
+        : toAssembly(kind === "starter" ? starterCraft() : kind === "rover" ? roverCraft() : twoStageCraft());
     selected.value = null;
     changed();
     scene?.fit();

@@ -1,6 +1,6 @@
 /** Shared domain contracts. Distances are metres, masses kg and angles radians. */
 export type PartType =
-  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar";
+  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel";
 export interface PartDefinition {
   name: string;
   label: string;
@@ -10,6 +10,8 @@ export interface PartDefinition {
   height: number;
   color: string;
   radial?: boolean;
+  width?: number;
+  depth?: number;
   power?: number;
   wheelTorque?: number;
   fuel?: number;
@@ -145,4 +147,12 @@ export interface WrenchCommand extends ForceTorque {
 export interface LibraryEntry {
   id: string;
   craft: Craft;
+}
+
+export interface WheelCommand {
+  enabled: boolean; expires: number; motor: number; steering: number; brake: number;
+}
+export interface WheelState {
+  id: string; grounded: boolean; compression: number; normalForce: number;
+  steering: number; rotation: number; speed: number; motorForce: number;
 }

@@ -4,7 +4,7 @@ import type {FlightSnapshot} from '../server/types.ts';
 import {toAssembly} from '../shared/assembly.ts';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {PARTS,layoutCraft,surfaceRadius} from '../shared/craft.ts';
+import {PARTS,layoutCraft,surfaceRadius,WHEEL} from '../shared/craft.ts';
 import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
@@ -35,7 +35,25 @@ function makeSolarTexture(){
 }
 export function makePart(type: PartType){
   const g=new THREE.Group();
-  if(type==='tank'){
+  if(type==='chassis'){
+    put(g,box(1.8,4,.45,'#b8c1ac',.55));
+    for(const x of [-.83,.83])put(g,box(.09,3.9,.52,'#526168',.7),x);
+    for(const y of [-1.8,0,1.8])put(g,box(1.7,.08,.48,'#e3a865',.6),0,y);
+    put(g,box(1.4,2.6,.025,'#73847d'),0,0,.24);
+  }else if(type==='wheel'){
+    put(g,box(.15,.25,.2,'#9aa9aa',.7));
+    const suspension=new THREE.Group();suspension.name='suspension';g.add(suspension);
+    suspension.position.set(WHEEL.trackOffset,0,-WHEEL.extension);
+    const steering=new THREE.Group();steering.name='steering';suspension.add(steering);
+    const tire=new THREE.Group();tire.name='tire';steering.add(tire);
+    const rubber=put(tire,cyl(WHEEL.radius,WHEEL.radius,.28,'#283034',.05));rubber.rotation.z=Math.PI/2;
+    const hub=put(tire,cyl(.23,.23,.30,'#b1babc',.8));hub.rotation.z=Math.PI/2;
+    for(let i=0;i<20;i++){const a=i*Math.PI/10,tread=put(tire,box(.3,.09,.035,'#41494b',.05),0,Math.cos(a)*.443,Math.sin(a)*.443);tread.rotation.x=a-Math.PI/2;}
+    const spring=put(g,cyl(.065,.065,1,'#e7b660',.7),.15,0,-WHEEL.extension/2);spring.name='spring';spring.rotation.x=Math.PI/2;spring.scale.y=WHEEL.extension;
+    put(suspension,box(.3,.07,.07,'#92a2a5',.7),-.15);
+    const coilPoints=Array.from({length:129},(_,i)=>{const a=i/128*Math.PI*16;return new THREE.Vector3(Math.cos(a)*.09,i/128-.5,Math.sin(a)*.09);});
+    spring.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coilPoints),128,.018,6,false),material('#e7b660',.7)));
+  }else if(type==='tank'){
     tankTexture??=makeTankTexture();const m=new THREE.MeshStandardMaterial({map:tankTexture,metalness:.25,roughness:.5});
     put(g,new THREE.Mesh(new THREE.CylinderGeometry(.615,.615,2.33,48),m));
     for(const y of [-1.15,1.15]){put(g,cyl(.636,.636,.07,'#a4b3b2',.7),0,y);put(g,cyl(.625,.625,.025,'#536970',.6),0,y*.95);}
@@ -196,7 +214,7 @@ export class RocketScene{
     this.craft=toAssembly(craft);this.stats=assemblyStats(craft);this.parts=assemblyLayout(craft);
     if(this.mode==='flight'&&oldHeight){const dy=(this.stats.height-oldHeight)/2;this.followCamera.position.y+=dy;this.followControls.target.y+=dy;}
     this.select(null);for(const g of this.groups.values()){this.rocket.remove(g);disposeGroup(g);}this.groups.clear();
-    for(const p of this.parts){const g=makePart(p.type);g.userData.partId=p.id;g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle!+Math.PI;if(p.connected===false)this.ghostMaterial(g);this.rocket.add(g);this.groups.set(p.id,g);}
+    for(const p of this.parts){const g=makePart(p.type);g.userData.partId=p.id;g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.type==='wheel')g.scale.x=-Math.cos(p.angle!)||1;else if(p.def.radial)g.rotation.y=p.angle!+Math.PI;if(p.connected===false)this.ghostMaterial(g);this.rocket.add(g);this.groups.set(p.id,g);}
     this.exhaust.clear();this.exhaustTime=null;
     for(const c of [...this.markers.children]){this.markers.remove(c);disposeGroup(c);}
     const core=this.parts.filter(p=>!p.def.radial&&p.connected!==false),bottom=core.length?Math.min(...core.map(p=>p.position[0]-p.def.height/2)):0,axis=core[0]?.position||[0,0,0];
@@ -231,8 +249,8 @@ export class RocketScene{
     for(const p of this.parts.filter(p=>!p.def.radial&&!excluded.has(p.id))){
       if(PARTS[type].radial){
         if(p.type==='engine')continue;
-        for(const offset of SURFACE_LEVELS)for(const a of SURFACE_ANGLES){
-          const radius=surfaceRadius(p.type,offset)+.012;
+        for(const offset of SURFACE_LEVELS)for(const a of (type==='wheel'?[0,Math.PI]:SURFACE_ANGLES)){
+          const radius=surfaceRadius(p.type,offset,a)+.012;
           const dot=new THREE.Mesh(new THREE.SphereGeometry(.025,8,6),new THREE.MeshBasicMaterial({color:'#99e4d7',transparent:true,opacity:.8}));
           dot.position.set(-p.position[1]-Math.cos(a)*radius,p.position[0]+offset*p.def.height,p.position[2]+Math.sin(a)*radius);this.snapGroup.add(dot);
         }
@@ -270,7 +288,7 @@ export class RocketScene{
         this.preview.add(g);
       }
     }
-    ghosts.forEach((p,i)=>{const g=this.preview.children[i];g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle!+Math.PI;g.traverse(o=>{if(!(isStandardMesh(o)))return;const transparent=!p.connected;if(o.material.transparent!==transparent){o.material.transparent=transparent;o.material.needsUpdate=true;}o.material.opacity=transparent?.28:1;o.material.depthWrite=!transparent;o.castShadow=!transparent;});});
+    ghosts.forEach((p,i)=>{const g=this.preview.children[i];g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.type==='wheel')g.scale.x=-Math.cos(p.angle!)||1;else if(p.def.radial)g.rotation.y=p.angle!+Math.PI;g.traverse(o=>{if(!(isStandardMesh(o)))return;const transparent=!p.connected;if(o.material.transparent!==transparent){o.material.transparent=transparent;o.material.needsUpdate=true;}o.material.opacity=transparent?.28:1;o.material.depthWrite=!transparent;o.castShadow=!transparent;});});
     this.preview.visible=true;this.placement=placement;
     for(const p of draft.parts){const g=this.groups.get(p.id);if(g&&!ids.has(p.id))g.position.set(-p.position[1],p.position[0],p.position[2]);}
     for(const id of ids)this.groups.get(id)!.visible=false;
@@ -333,12 +351,22 @@ export class RocketScene{
       if(g&&g.userData.signature!==signature){this.scene.remove(g);disposeGroup(g);this.debrisGroups.delete(d.id);g=undefined;}
       if(!g){
         g=new THREE.Group();g.userData.signature=signature;
-        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
+        for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.type==='wheel')part.scale.x=-Math.cos(p.angle!)||1;else if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
         this.scene.add(g);this.debrisGroups.set(d.id,g);
       }
     }
   }
   renderFlight(f: FlightSnapshot,now: number){
+    for(const w of f.wheels||[]){
+      const g=this.groups.get(w.id);if(!g)continue;
+      const suspension=g.getObjectByName('suspension'),steering=g.getObjectByName('steering'),tire=g.getObjectByName('tire'),spring=g.getObjectByName('spring');
+      const length=WHEEL.extension-w.compression;
+      if(suspension)suspension.position.z=-length;
+      if(spring){spring.position.z=-length/2;spring.scale.y=length;}
+      if(steering)steering.rotation.z=w.steering*g.scale.x;
+      if(tire)tire.rotation.x=-w.rotation;
+    }
+
     this.environment.updatePose(f);
     // World ECI -> Three at the rotating launch frame; model y is body x.
     const spin=-7.292115e-5*f.time;

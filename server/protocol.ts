@@ -96,8 +96,12 @@ export class PylonProtocol{
     }
     requireValue(p.type==='pylon_actuator_command','unsupported_command');
     const part=this.sim.craft.parts.find(c=>c.id===p.name&&c.type===p.actuatorType);
-    requireValue(part&&['engine','rcs'].includes(p.actuatorType),'unknown_actuator');
+    requireValue(part&&['engine','rcs','wheel'].includes(p.actuatorType),'unknown_actuator');
     requireValue(boolean(p.enabled),'invalid_actuator_enabled');
+    if(p.actuatorType==='wheel'){
+      requireValue(range(p.motor,-1,1)&&range(p.steering,-1,1)&&range(p.brake,0,1),'invalid_wheel_input');
+      return {stream:`actuator:wheel:${p.name}`,apply:()=>{this.sim.wheels[p.name]={enabled:p.enabled,motor:p.motor,steering:p.steering,brake:p.brake,expires};}};
+    }
     if(p.actuatorType==='engine'){
       requireValue(range(p.targetThrust,0,1e8),'invalid_thrust');
       requireValue(boolean(p.hasGimbalCommand??false)&&['gimbalPitch','gimbalYaw','gimbalRoll'].every(k=>range(p[k]??0,-1,1)),'invalid_gimbal');
@@ -170,11 +174,17 @@ export class PylonProtocol{
       linearAcceleration:fixedAcceleration,angularAcceleration:enu(rotate(s.quaternion,this.sim.angularAcceleration)),frameAngularVelocity:enu(spin)
     }));
     packets.push(this.authority());
-    const actuators=this.sim.craft.parts.filter(p=>['engine','rcs','decoupler'].includes(p.type)).map(p=>({name:p.id,actuatorType:p.type==='decoupler'?'separation':p.type,partId:p.id}));
+    const actuators=this.sim.craft.parts.filter(p=>['engine','rcs','decoupler','wheel'].includes(p.type)).map(p=>({name:p.id,actuatorType:p.type==='decoupler'?'separation':p.type,partId:p.id}));
     packets.push(this.packet('pylon_actuator_manifest',{actuators}));
     for(const a of actuators){
       if(a.actuatorType==='separation'){
         packets.push(this.packet('pylon_actuator_state',{...a,mechanism:'decoupler',available:!this.sim.separationIssue(a.name),separated:false}));continue;
+      }
+      if(a.actuatorType==='wheel'){
+        const c=this.sim.wheels[a.name],w=s.wheels.find(w=>w.id===a.name);
+        const commandActive=!!c&&c.expires>now&&this.owner.state===1;
+        const enabled=commandActive&&c.enabled&&s.charge>0&&!this.sim.passive&&!['crashed','landed','destroyed'].includes(s.status);
+        packets.push(this.packet('pylon_actuator_state',{...a,...w,enabled,commandActive,operational:s.charge>0,motor:enabled?c.motor:0,brake:enabled?c.brake:1}));continue;
       }
       const c=this.sim.engines[a.name] ?? this.sim.rcs[a.name],directActive=!!c&&c.expires>now&&this.owner.state===1;
       const wrenchActive=!!this.sim.wrench&&this.sim.wrench.expires>now&&this.owner.state===1,commandActive=directActive||wrenchActive;

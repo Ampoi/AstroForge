@@ -4,6 +4,9 @@ import {add,mul,sub,dot,inverse3} from './math.ts';
 
 export const DIAMETER=1.25;
 export const G0=9.80665;
+// The surrounding ground is below the launch deck (deck altitude = 0).
+export const GROUND_ALTITUDE=-1.12;
+export const WHEEL={radius:.45,extension:.55,travel:.4,spring:18000,damper:850,trackOffset:.32,motorForce:900,maxSpeed:12,grip:.85};
 const definitions={
   pod:{name:'コマンドポッド',label:'CP-1 Pathfinder',category:'command',description:'フライトコンピューターと姿勢用リアクションホイール。',mass:220,height:1.25,color:'#e0e8e8',power:80,wheelTorque:180},
   tank:{name:'燃料タンク',label:'FT-1200 Propellant',category:'fuel',description:'液体燃料・酸化剤をまとめて搭載。スタックして容量を追加。',mass:90,height:2.4,fuel:1200,color:'#dce2de'},
@@ -12,6 +15,8 @@ const definitions={
   fin:{name:'安定翼',label:'AF-1 Delta fin',category:'aero',description:'空力で機体を安定化。ミラー・放射状対称に対応。',mass:12,height:0.9,area:0.55,radial:true,color:'#d1dbdc'},
   rcs:{name:'RCSスラスター',label:'RC-4 Attitude block',category:'propulsion',description:'最大250 N。独立した一液式推進剤を搭載。',mass:9,height:0.28,radial:true,mono:8,thrust:250,color:'#a8b4bd'},
   battery:{name:'バッテリー',label:'EC-800 Power bank',category:'electrical',description:'800 Wh。制御装置とリアクションホイールに給電。',mass:35,height:0.32,power:800,color:'#465966'},
+  chassis:{name:'直方体シャーシ',label:'CH-400 Rover frame',category:'structure',description:'4 × 1.8 × 0.45 m の構造フレーム。左右にタイヤを取り付けてローバーを構成。',mass:180,height:4,width:1.8,depth:.45,color:'#c5c9b7'},
+  wheel:{name:'サスペンション付きタイヤ',label:'RW-45 Electric wheel',category:'mobility',description:'半径0.45 m。独立ばね・ダンパー、電動駆動・操舵・ブレーキ。UDPで個別操作。',mass:35,height:.9,radial:true,color:'#30383d'},
   solar:{name:'ソーラーパネル',label:'SP-120 Solar array',category:'electrical',description:'最大120 W。太陽方向と地球の影に応じて発電。',mass:8,height:0.8,radial:true,watts:120,color:'#36778e'}
 } satisfies Record<PartType, PartDefinition>;
 export const PARTS: {[K in PartType]: typeof definitions[K] & PartDefinition} = definitions;
@@ -23,6 +28,13 @@ export function starterCraft(): Craft{
     ...Array.from({length:4},(_,i)=>({id:`rcs_${i+1}`,type:'rcs' as const,parent:'tank_1',offset:0.32,angle:i*Math.PI/2,group:'rcs_1'}))
   ]};
 }
+export function roverCraft(): Craft{
+  return {name:'Trailblazer 01 / Rover',parts:[
+    {id:'pod_1',type:'pod'},{id:'chassis_1',type:'chassis'},{id:'battery_1',type:'battery'},
+    ...[-.4,.4].flatMap((offset,i)=>[0,Math.PI].map((angle,j)=>({id:`wheel_${i?'front':'rear'}_${j?'right':'left'}`,type:'wheel' as const,parent:'chassis_1',offset,angle})))
+  ]};
+}
+export function isRover(craft: Craft){return craft.parts.some(p=>p.type==='wheel');}
 export function twoStageCraft(){
   const craft=starterCraft();craft.name='Pathfinder 02 / Two stage';
   craft.parts.splice(3,0,{id:'upper_engine',type:'engine'},{id:'separator_1',type:'decoupler'});
@@ -44,6 +56,7 @@ export function validateCraft(value: unknown): Craft{
     const out: Part={id:p.id,type};
     if(PARTS[type].radial){
       if(typeof p.parent!=='string'||typeof p.angle!=='number'||typeof p.offset!=='number'||!Number.isFinite(p.angle)||!Number.isFinite(p.offset)||Math.abs(p.offset)>.5)throw Error('取り付け位置が不正です');
+      if(type==='wheel'&&Math.abs(Math.sin(p.angle))>1e-6)throw Error('タイヤは左右の側面（0°・180°）に取り付けてください');
       Object.assign(out,{parent:p.parent,angle:p.angle%(2*Math.PI),offset:p.offset});
       if(typeof p.group==='string'&&/^[a-zA-Z0-9_]{1,48}$/.test(p.group))out.group=p.group;
       if(p.mirror===true)out.mirror=true;
@@ -58,7 +71,8 @@ export function validateCraft(value: unknown): Craft{
   return {name:input.name.trim(),...(input.rootId!==undefined?{rootId:input.rootId as string}:{}),parts};
 }
 // Root of a radial model rests on the hull instead of a fixed floating radius.
-export function surfaceRadius(type: PartType,offset=0){
+export function surfaceRadius(type: PartType,offset=0,angle=0){
+  if(type==='chassis')return Math.min(.9/Math.max(1e-9,Math.abs(Math.cos(angle))),.225/Math.max(1e-9,Math.abs(Math.sin(angle))));
   if(type==='pod')return offset<-.38?.635:Math.max(.12,.624-(offset+.412)*.518);
   if(type==='tank')return Math.abs(offset)>.46?.636:.615;
   if(type==='battery')return Math.abs(offset)>.37?.633:.62;
@@ -91,7 +105,7 @@ export function layoutCraft(craft: Craft): LayoutPart[]{
   return craft.parts.map(p=>{
     const d=PARTS[p.type];
     const parent=d.radial?craft.parts.find(c=>c.id===p.parent):null;
-    const radius=parent?surfaceRadius(parent.type,p.offset)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[p.type] || 0):0;
+    const radius=parent?surfaceRadius(parent.type,p.offset,p.angle)+(({fin:.03,rcs:.04,solar:0} as Partial<Record<PartType, number>>)[p.type] || 0):0;
     const pos=d.radial?[positions.get(p.parent!)![0]+p.offset!*PARTS[parent!.type].height,Math.cos(p.angle!)*radius,Math.sin(p.angle!)*radius]:positions.get(p.id)!;
     return {...p,position:pos,def:d};
   });
@@ -103,7 +117,7 @@ export function massProperties(craft: Craft,fuelFraction: number | Record<string
   const inertia=Array(9).fill(0);
   for(const p of parts){
     const r=sub(p.position,com),rr=dot(r,r),radius=p.def.radial?.18:DIAMETER/2;
-    const own=[p.mass*radius**2/2,p.mass*(3*radius**2+p.def.height**2)/12,p.mass*(3*radius**2+p.def.height**2)/12];
+    const own=p.def.width&&p.def.depth?[p.mass*(p.def.width**2+p.def.depth**2)/12,p.mass*(p.def.height**2+p.def.depth**2)/12,p.mass*(p.def.height**2+p.def.width**2)/12]:[p.mass*radius**2/2,p.mass*(3*radius**2+p.def.height**2)/12,p.mass*(3*radius**2+p.def.height**2)/12];
     for(let i=0;i<3;i++)for(let j=0;j<3;j++)inertia[i*3+j]+=p.mass*((i===j?rr:0)-r[i]*r[j])+(i===j?own[i]:0);
   }
   return {mass,com,inertia,inverseInertia:inverse3(inertia),parts};
@@ -132,6 +146,10 @@ export function launchIssues(craft: Craft){
   const s=craftStats(craft),issues=[];
   try{validateCraft(craft);}catch(e){issues.push(errorMessage(e));}
   const active=stages(craft).at(-1)!;
+  if(isRover(craft)){
+    if(craft.parts.filter(p=>p.type==='wheel').length<3)issues.push('ローバーには3輪以上のタイヤを取り付けてください');
+    return issues;
+  }
   if(!active.some(p=>p.type==='engine'))issues.push('最下段にエンジンを取り付けてください');
   if(!active.some(p=>p.type==='tank'))issues.push('最下段に燃料タンクを取り付けてください');
   for(const p of craft.parts.filter(p=>p.type==='decoupler'))try{splitCraft(craft,p.id);}catch(e){issues.push(errorMessage(e));}

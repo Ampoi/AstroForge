@@ -1,5 +1,6 @@
 import type {
   Craft,
+  WheelState,
   FlightStatus,
   ForceTorque,
   AeroResult,
@@ -73,6 +74,7 @@ export interface FlightSnapshot {
   stats: ReturnType<typeof craftStats>;
   com: number[];
   engines: EngineResult[];
+  wheels: WheelState[];
   powerGeneration: number;
   separations: { id: string; time: number }[];
   debris: FlightSnapshot[];
@@ -114,6 +116,9 @@ export interface WireCommand {
   gimbalYaw: number;
   gimbalRoll: number;
   thrustLimit: number;
+  motor: number;
+  steering: number;
+  brake: number;
   hasFlight: boolean;
   hasSeparation: boolean;
   renewLease: boolean;

@@ -1,10 +1,11 @@
-import type {Craft, FlightStatus, Actuation, EngineCommand, RcsCommand, FlightCommand, WrenchCommand} from '../shared/types.ts';
+import type {Craft, FlightStatus, Actuation, EngineCommand, RcsCommand, FlightCommand, WrenchCommand, WheelCommand, WheelState} from '../shared/types.ts';
 import type {PhysicsKernel, FlightSnapshot} from './types.ts';
 import {randomUUID} from 'node:crypto';
 import {add,sub,mul,dot,cross,norm,unit,clamp,qnorm,qconj,qmul,rotate,axisAngle,matVec} from '../shared/math.ts';
-import {PARTS,G0,craftStats,massProperties,stages,splitCraft} from '../shared/craft.ts';
+import {PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GROUND_ALTITUDE} from '../shared/craft.ts';
 
 import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
+import {roverForces,WHEEL} from './rover.ts';
 import {physicsKernel} from './physics-kernel.ts';
 export {EARTH,STEP,atmosphere,gravity,orbitalElements,rk4} from './physics-reference.ts';
 
@@ -20,6 +21,8 @@ export class Simulation{
   acceleration: number[]=[]; angularAcceleration: number[]=[];
   last={thrust:0,drag:0,q:0,mach:0,aoa:0}; lastActuation: Actuation | null=null;
   engines: Record<string,EngineCommand>={}; rcs: Record<string,RcsCommand>={};
+  wheels: Record<string,WheelCommand>={}; wheelStates: WheelState[]=[];
+  get rover(){return isRover(this.craft);}
   flight: FlightCommand | null=null; wrench: WrenchCommand | null=null;
 
   constructor(craft: Craft,{kernel=physicsKernel}={}){this.kernel=kernel;this.reset(craft);}
@@ -34,10 +37,18 @@ export class Simulation{
     this.props=massProperties(craft);this.padHeight=this.props.com[0];
     this.position=[EARTH.radius+this.padHeight,0,0];this.velocity=cross([0,0,EARTH.spin],this.position);
     this.quaternion=[0,0,0,1];this.omega=[0,0,EARTH.spin];
+    if(this.rover){
+      this.quaternion=[.5,.5,.5,.5];
+      const bottom=Math.min(...this.props.parts.filter(p=>p.type==='wheel').map(p=>p.position[2]-WHEEL.extension-WHEEL.radius));
+      this.padHeight=this.props.com[2]-bottom+GROUND_ALTITUDE+.08;
+      this.position=[Math.sqrt((EARTH.radius+this.padHeight)**2-200**2),200,0];this.velocity=cross([0,0,EARTH.spin],this.position);
+      this.omega=rotate(qconj(this.quaternion),[0,0,EARTH.spin]);this.status='flying';
+    }
+    this.wheelStates=[];
     this.acceleration=[0,0,0];this.angularAcceleration=[0,0,0];this.last={thrust:0,drag:0,q:0,mach:0,aoa:0};
-    this.clearCommands();this.event('発射台に配置。UDPコマンドを待っています。');
+    this.clearCommands();this.event(this.rover?'ローバーを地表に配置。車輪UDPコマンドを待っています。':'発射台に配置。UDPコマンドを待っています。');
   }
-  clearCommands(){this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
+  clearCommands(){this.wheels={};this.engines={};this.rcs={};this.flight=null;this.wrench=null;}
   event(text: string){this.events.unshift({time:this.time,text});this.events=this.events.slice(0,30);}
   separationIssue(id: string){
     if(this.status!=='flying')return 'separation_requires_flight';
@@ -159,6 +170,9 @@ export class Simulation{
     return this.kernel.aerodynamic(this,position,velocity,q,omega);
   }
   step(dt=STEP,now=this.time){
+    // Suspension contact needs smaller fixed steps, including under time warp.
+    if(this.rover&&dt>1/240+1e-10){const n=Math.ceil(dt/(1/240));for(let i=0;i<n;i++)this.step(dt/n,now);return;}
+
     for(const debris of this.debris)debris.step(dt,now);
     this.debris=this.debris.filter(d=>!d.expiresAt||d.time<d.expiresAt);
     if(this.status==='destroyed'){this.time+=dt;return;}
@@ -170,6 +184,12 @@ export class Simulation{
     }
     this.props=massProperties(this.craft,this.tankFuel,this.stats.mono?this.mono/this.stats.mono:0);
     const a=this.actuation(now,dt),props=this.props;
+    if(this.rover){
+      const ground=roverForces(this,dt,now);this.wheelStates=ground.states;
+      if(this.destroyedAt!==null){this.time+=dt;return;}
+      a.force=add(a.force,ground.force);a.torque=add(a.torque,ground.torque);
+      this.charge=Math.max(0,this.charge-ground.watts*dt/3600);
+    }
     this.lastActuation=a;
     const start=[...this.position,...this.velocity,...this.quaternion,...this.omega];
     if(this.status==='pad'&&a.thrust>props.mass*norm(gravity(this.position))){this.status='flying';this.event('LIFTOFF — 発射台を離れました');}
@@ -186,7 +206,7 @@ export class Simulation{
       const alignment=dot(up,nose);
       const contactExtent=Math.max(this.props.com[0]*alignment,-(this.stats.height-this.props.com[0])*alignment)+.625*Math.sqrt(Math.max(0,1-alignment**2));
       const lowest=norm(this.position)-EARTH.radius-contactExtent;
-      if(lowest<=0){
+      if(!this.rover&&lowest<=0){
         const impact=norm(sub(this.velocity,cross([0,0,EARTH.spin],this.position)));
         if(impact>=8){this.time+=dt;this.impactDamage(impact);return;}
         this.status=impact<4&&dot(up,nose)>.95?'landed':'crashed';this.clearCommands();
@@ -210,7 +230,7 @@ export class Simulation{
       mass:this.props.mass,fuel:this.fuel,mono:this.mono,charge:this.charge,orbit,...this.last,maxAltitude:this.maxAltitude,maxQ:this.maxQ,
       upBody:rotate(inverse,up),eastBody:rotate(inverse,east),northBody:rotate(inverse,north),surfaceVelocityBody:rotate(inverse,sv),orbitalVelocityBody:rotate(inverse,this.velocity),
       gravity:EARTH.mu/(r*r),events:this.events,stats:this.stats,com:this.props.com,
-      engines:this.lastActuation?.engineResults||[],powerGeneration:this.lastActuation?.watts||0,
+      wheels:this.wheelStates,engines:this.lastActuation?.engineResults||[],powerGeneration:this.lastActuation?.watts||0,
       separations:this.separations,debris:this.debris.map(d=>d.snapshot())};
   }
 }
