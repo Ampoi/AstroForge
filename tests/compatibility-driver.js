@@ -2,8 +2,8 @@
 import {createInterface} from 'node:readline';
 import {Simulation} from '../server/physics.ts';
 import {PylonProtocol} from '../server/protocol.ts';
-import {twoStageCraft} from '../shared/craft.ts';
-const sim=new Simulation(twoStageCraft()),protocol=new PylonProtocol(sim,()=>0);
+import {twoStageCraft,roverCraft} from '../shared/craft.ts';
+const sim=new Simulation(process.argv.includes('--rover')?roverCraft():twoStageCraft()),protocol=new PylonProtocol(sim,()=>0);
 protocol.available=true;
 console.log(JSON.stringify(protocol.telemetry()));
 for await(const line of createInterface({input:process.stdin})){

@@ -8,7 +8,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-if len(sys.argv) != 2:
+if len(sys.argv) not in (2, 3):
     raise SystemExit(__doc__)
 sys.path.insert(0, str(Path(sys.argv[1]) / 'Ros2' / 'pylon_bridge'))
 from pylon_bridge.protocol import decode_datagram, encode_datagram
@@ -28,7 +28,7 @@ parsers = {'pylon_session': simulator_state_from_packet, 'pylon_flight_state': f
     'pylon_wrench_status': wrench_feedback_from_packet, 'pylon_imu': imu_from_packet,
     'pylon_vehicle_health': vehicle_health_from_packet, 'pylon_control_snapshot': control_snapshot_from_packet}
 root = Path(__file__).resolve().parents[1]
-proc = subprocess.Popen(['node', '--import', 'tsx', 'tests/compatibility-driver.js'], cwd=root,
+proc = subprocess.Popen(['node', '--import', 'tsx', 'tests/compatibility-driver.js'] + (['--rover'] if '--rover' in sys.argv else []), cwd=root,
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 try:
     packets = json.loads(proc.stdout.readline())
@@ -56,6 +56,14 @@ try:
         actuator_command('separation', 'separator_1', {'separate': True}, 6, vessel, 'upstream-test', 'lease'),
         control_authority_command('release', vessel, 'upstream-test', 'lease', 1, 2, True, 7)
     ]
+    if '--rover' in sys.argv:
+        commands = [commands[0],
+            actuator_command('wheel', 'wheel_front_left', {'targetAngularVelocity':12.,
+                'steeringAngle':.2,'maxDriveTorque':90.,'brake':0.,'timeoutSeconds':.5},
+                2, vessel, 'upstream-test', 'lease'),
+            actuator_command('wheel', 'wheel_front_left', {'enabled':False,'targetAngularVelocity':0.,
+                'steeringAngle':0.,'maxDriveTorque':90.,'brake':1.,'timeoutSeconds':.5},
+                3, vessel, 'upstream-test', 'lease'), commands[-1]]
     for command in commands:
         command.update(session)
         proc.stdin.write(encode_datagram(command).decode()+'\n')
@@ -63,6 +71,12 @@ try:
         result = json.loads(proc.stdout.readline())
         assert result['result']['reason'] in ('lease_acquired','command_accepted','lease_released'), result
         validate(result['packets'])
+        if command.get('actuatorType') == 'wheel':
+            state = next(p for p in result['packets'] if p.get('name') == 'wheel_front_left' and p['type'] == 'pylon_actuator_state')
+            assert state['radius'] == .45 and state['wheelCount'] == 4
+            assert state['steeringAngle'] == command['steeringAngle']
+            assert state['enabled'] == command['enabled']
+            assert 0 < state['maxDriveTorque'] <= 90
         if command.get('hasGimbalCommand'):
             state = next(p for p in result['packets'] if p['type']=='pylon_actuator_state' and p['name']=='engine_1')
             assert state['gimbalPitch'] == .2 and state['gimbalYaw'] == -.1

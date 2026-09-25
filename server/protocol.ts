@@ -4,7 +4,8 @@ import {errorMessage} from '../shared/errors.ts';
 import {randomUUID} from 'node:crypto';
 import {appendObservations} from './observations.ts';
 import {EARTH} from './physics.ts';
-import {PARTS,splitCraft,stages} from '../shared/craft.ts';
+import {wheelGeometry} from './rover.ts';
+import {PARTS,WHEEL,splitCraft,stages} from '../shared/craft.ts';
 import {add,sub,mul,dot,cross,norm,clamp,rotate,qconj,qmul,axisAngle} from '../shared/math.ts';
 
 const identity=(v: unknown)=>typeof v==='string'&&v.trim().length>0&&v.length<=64;
@@ -99,8 +100,8 @@ export class PylonProtocol{
     requireValue(part&&['engine','rcs','wheel'].includes(p.actuatorType),'unknown_actuator');
     requireValue(boolean(p.enabled),'invalid_actuator_enabled');
     if(p.actuatorType==='wheel'){
-      requireValue(range(p.motor,-1,1)&&range(p.steering,-1,1)&&range(p.brake,0,1),'invalid_wheel_input');
-      return {stream:`actuator:wheel:${p.name}`,apply:()=>{this.sim.wheels[p.name]={enabled:p.enabled,motor:p.motor,steering:p.steering,brake:p.brake,expires};}};
+      requireValue(['targetAngularVelocity','steeringAngle','maxDriveTorque'].every(k=>finite(p[k]))&&range(p.brake??0,0,1)&&!('motor' in p)&&!('steering' in p),'invalid_wheel_input');
+      return {stream:`actuator:wheel:${p.name}`,apply:()=>{this.sim.wheels[p.name]={enabled:p.enabled,targetAngularVelocity:p.targetAngularVelocity,steeringAngle:p.steeringAngle,maxDriveTorque:p.maxDriveTorque,brake:p.brake??0,expires};}};
     }
     if(p.actuatorType==='engine'){
       requireValue(range(p.targetThrust,0,1e8),'invalid_thrust');
@@ -184,7 +185,9 @@ export class PylonProtocol{
         const c=this.sim.wheels[a.name],w=s.wheels.find(w=>w.id===a.name);
         const commandActive=!!c&&c.expires>now&&this.owner.state===1;
         const enabled=commandActive&&c.enabled&&s.charge>0&&!this.sim.passive&&!['crashed','landed','destroyed'].includes(s.status);
-        packets.push(this.packet('pylon_actuator_state',{...a,...w,enabled,commandActive,operational:s.charge>0,motor:enabled?c.motor:0,brake:enabled?c.brake:1}));continue;
+        packets.push(this.packet('pylon_actuator_state',{...a,...wheelGeometry(this.sim,a.name),enabled,commandActive,
+          grounded:w?.grounded??false,angularPosition:w?.rotation??0,angularVelocity:(w?.speed??0)/WHEEL.radius,steeringAngle:w?.steering??0,
+          driveTorque:w?.driveTorque??0,brakeTorque:w?.brakeTorque??0,slip:w?.slip??0,maxDriveTorque:w?.maxDriveTorque??WHEEL.motorForce*WHEEL.radius}));continue;
       }
       const c=this.sim.engines[a.name] ?? this.sim.rcs[a.name],directActive=!!c&&c.expires>now&&this.owner.state===1;
       const wrenchActive=!!this.sim.wrench&&this.sim.wrench.expires>now&&this.owner.state===1,commandActive=directActive||wrenchActive;

@@ -150,9 +150,10 @@ export interface LibraryEntry {
 }
 
 export interface WheelCommand {
-  enabled: boolean; expires: number; motor: number; steering: number; brake: number;
+  enabled: boolean; expires: number; targetAngularVelocity: number; steeringAngle: number; maxDriveTorque: number; brake: number;
 }
 export interface WheelState {
   id: string; grounded: boolean; compression: number; normalForce: number;
   steering: number; rotation: number; speed: number; motorForce: number;
+  driveTorque: number; brakeTorque: number; slip: number; maxDriveTorque: number;
 }

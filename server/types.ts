@@ -116,8 +116,9 @@ export interface WireCommand {
   gimbalYaw: number;
   gimbalRoll: number;
   thrustLimit: number;
-  motor: number;
-  steering: number;
+  targetAngularVelocity: number;
+  steeringAngle: number;
+  maxDriveTorque: number;
   brake: number;
   hasFlight: boolean;
   hasSeparation: boolean;

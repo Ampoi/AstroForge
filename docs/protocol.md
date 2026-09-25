@@ -122,6 +122,8 @@ sequenceは制御権・姿勢・wrench・各アクチュエータ・batchの系�
 
 [PyLoN v1の参照リビジョン](https://github.com/PyLoN-sim/PyLoN/tree/d62d948064d6665702d05957a669596244dca8da)のうち、飛行制御に関係するサブセットに対応します。パーツ名はAstroForgeの保存パーツIDなので、固定名を前提にせずmanifestから取得してください。KSP用の制御ゲイン・質量・重力・推力パラメーターをそのまま流用できるとは限りません。
 
-LiDAR、カメラ、スタートラッカー、URDF/モデル転送、パーツ温度、近隣機体、ロボティクスmotor、rover/wheel、分離結果ジャーナル（`pylon_separation_result/query`）、ドッキング、UDPパケット単独での制御対象切り替え、ROSサーバーは未実装です。
+車輪はPyLoNの目標角速度・操舵角・駆動トルク指令と状態配信に対応しています（[ローバー](./rover)）。
+
+LiDAR、カメラ、スタートラッカー、URDF/モデル転送、パーツ温度、近隣機体、ロボティクスmotor、分離結果ジャーナル（`pylon_separation_result/query`）、ドッキング、UDPパケット単独での制御対象切り替え、ROSサーバーは未実装です。
 
 動くクライアントの例は[Node.jsデモ](https://github.com/Ampoi/AstroForge/blob/main/examples/demo-controller.ts)と[Pythonサンプル](https://github.com/Ampoi/AstroForge/blob/main/examples/launch.py)にあります。本体への機能追加は[貢献](./contributing)を参照してください。

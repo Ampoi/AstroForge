@@ -38,6 +38,6 @@ The benchmark process used 76.3 MiB RSS; this includes the Node runtime. These a
 
 ## Explicit boundaries
 
-The requested rocket MVP is implemented. PyLoN compatibility covers the rocket control and observation contract documented in `protocol.md`; optional KSP systems such as LiDAR, camera sensors, rover wheels, docking and URDF export are not supplied. The upstream test validates actual encoders/decoders, not a running ROS/DDS installation.
+The requested rocket MVP is implemented. PyLoN compatibility covers the rocket control and observation contract documented in `protocol.md`; optional KSP systems such as LiDAR, camera sensors, docking and URDF export are not supplied. The upstream test validates actual encoders/decoders, not a running ROS/DDS installation.
 
 Aerodynamics uses coefficients and an ISA model, not CFD or coefficients identified from a real vehicle. Earth clouds and scattering are visual approximations. These limitations are recorded in README.md and are not used as evidence of higher physical fidelity.
