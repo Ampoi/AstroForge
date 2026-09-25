@@ -4,7 +4,7 @@ import type {ServerResponse, IncomingMessage} from 'node:http';
 import http from 'node:http';
 import {readFile,mkdir,writeFile,rename} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
-import {dirname,resolve,extname} from 'node:path';
+import {dirname,resolve,extname,isAbsolute,relative} from 'node:path';
 import {FlightWorld} from './world.ts';
 import {physicsKernel} from './physics-kernel.ts';
 import {randomUUID} from 'node:crypto';
@@ -105,7 +105,8 @@ const server=http.createServer(async(req,res)=>{
     }
     else if(vite){vite.middlewares(req,res,(error: unknown)=>json(res,error?500:404,{error:error?errorMessage(error):'Not found'}));return;}
     else file=resolve(root,'dist',path==='/'?'index.html':`.${path}`);
-    if(!file.startsWith(root+'/')||path.includes('..')){json(res,403,{error:'Forbidden'});return;}
+    const relativeFile=relative(root,file);
+    if(relativeFile.startsWith('..')||isAbsolute(relativeFile)||path.includes('..')){json(res,403,{error:'Forbidden'});return;}
     const data=await readFile(file);res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:data);
   }catch(e){json(res,errorCode(e)==='ENOENT'?404:400,{error:errorCode(e)==='ENOENT'?'Not found':errorMessage(e)});}
 });
