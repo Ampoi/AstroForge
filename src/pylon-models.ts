@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type {PartType} from '../shared/types.ts';
 import {PARTS} from '../shared/craft.ts';
+import {SLIM_DIAMETER} from '../shared/part-dimensions.ts';
 import lidar2d from './assets/pylon/lidar2d.json';
 import lidar3d from './assets/pylon/lidar3d.json';
 import camera from './assets/pylon/camera.json';
@@ -46,6 +47,9 @@ export function makePylonPart(type: PartType): THREE.Group | null {
     // Keep both existing stack nodes. Moving stages stretch to cover the full
     // AstroForge travel (2 m), which differs from PyLoN's native 1.6 m travel.
     model.scale.setScalar(PARTS.linear.height / 1.6049312);
+    // The source flange is 0.3125 m across; retain stack height/travel while
+    // fitting both end flanges to the nominal small attachment standard.
+    model.scale.x=model.scale.z=SLIM_DIAMETER/.3125;
     model.position.y = -PARTS.linear.height / 2;
   } else if (type === 'servo') {
     // PyLoN's axial rotor becomes the existing Z-axis hinge in this simulator.

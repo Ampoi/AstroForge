@@ -38,6 +38,7 @@ import type {
 } from "../shared/types.ts";
 import type { AppState, ApiRoutes, UdpState } from "../shared/api.ts";
 import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
+import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
@@ -191,14 +192,22 @@ export function useWorkshop() {
         ? "◆ ルートを配置 · 子パーツも一緒に移動"
         : placement.value?.kind === "free"
           ? "未接続 · 半透明のパーツは機体に含まれません · Escで取消"
+          : placement.value?.kind === "stack"
+            ? stackHint(placement.value)
           : placement.value?.snapped
             ? "⌖ 接続点にスナップ · 離して接続"
             : placement.value?.kind === "surface"
               ? "側面に取り付け · 離して確定"
               : placement.value === null
                 ? "この位置には配置できません"
-                : "パーツを配置 · 接続点へ近づけてスナップ · Escで取消",
+                : "パーツを配置 · 断面を近づけて重ねるとスナップ · Escで取消",
   );
+  function stackHint(value: Extract<AssemblyPlacement,{kind:'stack'}>) {
+    const target=craft.value.parts.find(p=>p.id===value.parent),type=scene?.placing;
+    if(!target||!type)return '⌖ 断面にスナップ · 離して接続';
+    const face=attachmentFace(target.type,value.side)!,incoming=attachmentFace(type,-value.side)!;
+    return `⌖ ${faceLabel(face)} · ${matchingFaces(face,incoming)?'同じ規格':'異径接続OK'} · 離して接続`;
+  }
   function toast(message: string) {
     toastText.value = message;
     clearTimeout(toastTimer);

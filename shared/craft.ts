@@ -1,6 +1,7 @@
 import type {Craft, Part, PartType, PartDefinition, LayoutPart} from './types.ts';
 import {record, errorMessage} from './errors.ts';
 import {add,mul,sub,dot,inverse3,rotate} from './math.ts';
+import {SLIM_DIAMETER} from './part-dimensions.ts';
 
 export function sensorName(id:string){const value=id.replace(/_+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()||'sensor';return /^\d/.test(value)?'_'+value:value;}
 export const DIAMETER=1.25;
@@ -75,7 +76,7 @@ export function validateCraft(value: unknown): Craft{
   const sensorNames=parts.filter(p=>['lidar2d','lidar3d','camera','startracker'].includes(p.type)).map(p=>sensorName(p.id));
   if(new Set(sensorNames).size!==sensorNames.length)throw Error('センサーIDは大文字・小文字を区別せず一意にしてください');
   const core=parts.filter(p=>!PARTS[p.type].radial);
-  if(core.length<1||core[0].type!=='pod'||parts.filter(p=>p.type==='pod').length!==1)throw Error('先端にはコマンドポッドを1個配置してください');
+  if(parts.filter(p=>p.type==='pod').length!==1)throw Error('コマンドポッドを1個配置してください');
   if(core.some((p,i)=>p.type==='engine'&&i!==core.length-1&&core[i+1].type!=='decoupler'))throw Error('エンジンの下には分離リングを配置してください');
   for(const p of parts.filter(p=>PARTS[p.type].radial))if(!core.some(c=>c.id===p.parent&&c.type!=='engine'))throw Error('側面パーツの取り付け先がありません');
   if(input.rootId!==undefined&&!core.some(p=>p.id===input.rootId))throw Error('ルートパーツがありません');
@@ -84,7 +85,11 @@ export function validateCraft(value: unknown): Craft{
 // Root of a radial model rests on the hull instead of a fixed floating radius.
 export function surfaceRadius(type: PartType,offset=0,angle=0){
   if(type==='chassis')return Math.min(.9/Math.max(1e-9,Math.abs(Math.cos(angle))),.225/Math.max(1e-9,Math.abs(Math.sin(angle))));
-  if(type==='pod')return offset<-.38?.635:Math.max(.12,.624-(offset+.412)*.518);
+  if(type==='pod'){
+    const y=Math.max(-.625,Math.min(.625,offset*PARTS.pod.height));
+    return y<-.495?.635:y>.505?SLIM_DIAMETER*(.8-(y-.505)/.12*.3):.624-(y+.515)/1.02*(.624-SLIM_DIAMETER*.8);
+  }
+  if(type==='linear')return SLIM_DIAMETER/2;
   if(type==='tank')return Math.abs(offset)>.46?.636:.615;
   if(type==='battery')return Math.abs(offset)>.37?.633:.62;
   return .64;

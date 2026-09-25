@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {PARTS,layoutCraft,surfaceRadius,WHEEL} from '../shared/craft.ts';
 import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
-import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
+import {assemblyLayout,assemblyStats,movingIds,occupied,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
+import {attachmentFace,SLIM_DIAMETER} from '../shared/attachment.ts';
+import {makeFaceGuide} from './attachment-guides.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {SceneLighting} from './celestial.ts';
 import {makeLaunchSite} from './launch-site.ts';
@@ -68,9 +70,9 @@ export function makePart(type: PartType, merge=true){
     for(const y of [-1.15,1.15]){put(g,cyl(.636,.636,.07,'#a4b3b2',.7),0,y);put(g,cyl(.625,.625,.025,'#536970',.6),0,y*.95);}
     put(g,box(.065,2.15,.065,'#8d9e9c',.6),.54,0,.27);
   }else if(type==='pod'){
-    put(g,cyl(.16,.624,1.12,'#dbe5e3',.3),0,.045);
+    put(g,cyl(SLIM_DIAMETER*.8,.624,1.02,'#dbe5e3',.3),0,-.005);
     put(g,cyl(.635,.635,.13,'#465b65',.6),0,-.56);
-    put(g,cyl(.12,.16,.12,'#d3e0de'),0,.57);
+    put(g,cyl(SLIM_DIAMETER/2,SLIM_DIAMETER*.8,.12,'#d3e0de'),0,.565);
     const window=put(g,box(.3,.21,.03,'#142d3f',.65),0,-.04,.41);window.rotation.x=.39;
     const rim=put(g,box(.38,.28,.026,'#5c787f',.65),0,-.04,.39);rim.rotation.x=.39;
     put(g,box(.018,.13,.031,'#adcad1',.7),0,-.04,.445).rotation.x=.39;
@@ -234,6 +236,7 @@ export class RocketScene{
   }
   clearPreview(dispose=false){
     for(const p of this.parts||[]){const g=this.groups.get(p.id)!;g.position.set(-p.position[1],p.position[0],p.position[2]);g.visible=true;}
+    this.updateFaceGuides(this.parts||[]);
     this.preview.visible=false;
     this.markers.visible=this.showMarkers&&this.mode==='editor'&&!!this.parts?.length;
     if(dispose)for(const c of [...this.preview.children]){this.preview.remove(c);disposeGroup(c);}
@@ -248,10 +251,12 @@ export class RocketScene{
     this.placing=type;this.element.style.cursor=type?'crosshair':'';
     for(const c of [...this.snapGroup.children]){this.snapGroup.remove(c);disposeGroup(c);}
     this.onPlacement(type?undefined:false);
-    if(!type||!this.parts||!this.placementOptions.snap)return;
+    this.snapGroup.visible=this.mode==='editor';
+    if(!this.parts)return;
     const excluded=movingIds(this.craft,this.moving?.id);
     for(const p of this.parts.filter(p=>!p.def.radial&&!excluded.has(p.id))){
-      if(PARTS[type].radial){
+      if(type&&PARTS[type].radial){
+        if(!this.placementOptions.snap)continue;
         if(p.type==='engine')continue;
         for(const offset of SURFACE_LEVELS)for(const a of (type==='wheel'?[0,Math.PI]:SURFACE_ANGLES)){
           const radius=surfaceRadius(p.type,offset,a)+.012;
@@ -260,12 +265,21 @@ export class RocketScene{
         }
       }else{
         for(const side of [1,-1]){
-          const position=[p.position[0]+side*(p.def.height+PARTS[type].height)/2,p.position[1],p.position[2]];
-          const candidate=resolveAssemblyPlacement(this.craft,type,null,{point:position,movingId:this.moving?.id});
-          if(candidate.kind!=='stack'||candidate.parent!==p.id||candidate.side!==side)continue;
-          const ring=new THREE.Mesh(new THREE.TorusGeometry(.65,.014,8,40),new THREE.MeshBasicMaterial({color:'#99e4d7',transparent:true,opacity:.65,depthTest:false}));ring.rotation.x=Math.PI/2;ring.position.set(-p.position[1],p.position[0]+side*p.def.height/2,p.position[2]);ring.renderOrder=5;this.snapGroup.add(ring);
+          if(occupied(this.craft,p,side,excluded))continue;
+          const ring=makeFaceGuide(attachmentFace(p.type,side)!,type ? .85 : .65);
+          Object.assign(ring.userData,{partId:p.id,side});
+          ring.position.set(-p.position[1],p.position[0]+side*p.def.height/2,p.position[2]);this.snapGroup.add(ring);
         }
       }
+    }
+  }
+  updateFaceGuides(parts: LayoutPart[],placement?: AssemblyPlacement){
+    for(const guide of this.snapGroup?.children||[]){
+      if(!guide.userData.attachmentGuide)continue;
+      const p=parts.find(p=>p.id===guide.userData.partId);if(!p)continue;
+      guide.position.set(-p.position[1],p.position[0]+guide.userData.side*p.def.height/2,p.position[2]);
+      const active=placement?.kind==='stack'&&placement.parent===p.id&&placement.side===guide.userData.side;
+      (guide as THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>).material.opacity=active ? 1 : this.placing ? .85 : .65;
     }
   }
   updatePlacement(e: MouseEvent | DragEvent){
@@ -289,6 +303,9 @@ export class RocketScene{
       for(const p of ghosts){
         const g=makePart(p.type);g.userData.partId=p.id;
         g.traverse(o=>{if(!(isStandardMesh(o)))return;const old=o.material;o.material=old.clone();if(!Object.values(materials).includes(old))old.dispose();});
+        if(!p.def.radial)for(const side of [1,-1]){
+          const guide=makeFaceGuide(attachmentFace(p.type,side)!,1);guide.position.y=side*p.def.height/2;g.add(guide);
+        }
         this.preview.add(g);
       }
     }
@@ -296,6 +313,7 @@ export class RocketScene{
     this.preview.visible=true;this.placement=placement;
     for(const p of draft.parts){const g=this.groups.get(p.id);if(g&&!ids.has(p.id))g.position.set(-p.position[1],p.position[0],p.position[2]);}
     for(const id of ids)this.groups.get(id)!.visible=false;
+    this.updateFaceGuides(assemblyLayout(draft),placement);
     this.markers.visible=false;
     this.onPlacement(placement,draft);
     return placement;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PartIcon from "./components/PartIcon.vue";
 import { PARTS, isRover } from "../shared/craft.ts";
+import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
   displayRate,
@@ -164,8 +165,10 @@ function closeOnBackdrop(event: MouseEvent) {
       <div class="library-foot">
         <span class="diameter-symbol">⌀</span>
         <div>
-          <strong>共通径 1.25 m</strong>
-          <p>面に取り付け、接続点の近くでスナップ</p>
+          <strong :style="{color:FACE_COLORS.standard}">標準径 ⌀1.25 m</strong>
+          <strong :style="{color:FACE_COLORS.slim}">細径 ⌀{{ SLIM_DIAMETER.toFixed(2) }} m</strong>
+          <p><span :style="{color:FACE_COLORS.custom}">橙：矩形・その他</span> · 異なる規格も接続可</p>
+          <p>断面を近づけて重ねると中心へスナップ</p>
         </div>
       </div>
     </aside>
@@ -222,7 +225,7 @@ function closeOnBackdrop(event: MouseEvent) {
           id="snap-button"
           class="snap-indicator"
           :aria-pressed="snap"
-          title="近くの接続点へスナップ。Altキーで一時解除"
+          title="近づいた断面を中心へスナップ。Altキーで一時解除"
           @click="toggleSnap"
         >
           ⌖ スナップ {{ snap ? "ON" : "OFF" }}
@@ -611,6 +614,10 @@ function closeOnBackdrop(event: MouseEvent) {
                   : ""
               }}
             </p>
+            <p v-if="!PARTS[selection.type].radial" class="part-description">
+              上端：{{ faceLabel(attachmentFace(selection.type,1)!) }}<br />
+              下端：{{ faceLabel(attachmentFace(selection.type,-1)!) }}
+            </p>
             <template v-if="PARTS[selection.type].radial && selection.parent"
               ><label class="position-control"
                 >上下位置<input
@@ -803,7 +810,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>01</span>
         <p>
           <strong>ロケットを組み立てる</strong
-          >最初の胴体パーツを配置してルートを作成。接続点に近づけるとスナップします。ドラッグで子パーツも一緒に移動し、未接続のパーツは半透明になります。半透明のパーツは集計・保存・発射に含まれません。Escで取消、⌘Zで元に戻せます。
+          >最初の胴体パーツを配置してルートを作成。空いている断面の縁は標準径が緑、細径が紫、矩形などが橙です。断面を近づけて重ねると中心へスナップし、異なる規格でも接続できます。Altでスナップを一時解除。ドラッグで子パーツも一緒に移動し、未接続のパーツは半透明になります。半透明のパーツは集計・保存・発射に含まれません。Escで取消、⌘Zで元に戻せます。
         </p>
       </div>
       <div>

@@ -2,6 +2,7 @@ import type {Craft, Design, Assembly, AssemblyPart, Part, PartType, LayoutPart, 
 import {record} from './errors.ts';
 import {PARTS,layoutCraft,craftStats,surfaceRadius,symmetryAngles,validateCraft} from './craft.ts';
 import {SNAP_DISTANCE,SURFACE_LEVELS,SURFACE_ANGLES} from './placement.ts';
+import {attachmentFace,facesOverlap,matchingFaces} from './attachment.ts';
 
 // The workshop is a forest. Only the tree containing rootId belongs to the vehicle.
 // Positions stay in the workshop's body frame when a branch is disconnected.
@@ -78,7 +79,7 @@ function surfacePosition(parent: AssemblyPart,type: PartType,offset: number,angl
 }
 function endPosition(p: AssemblyPart,side: number){return [p.position[0]+side*PARTS[p.type].height/2,...p.position.slice(1)];}
 const distance=(a: number[],b: number[])=>Math.hypot(...a.map((v,i)=>v-b[i]));
-function occupied(craft: Assembly,p: AssemblyPart,side: number,exclude: Set<string>){
+export function occupied(craft: Assembly,p: AssemblyPart,side: number,exclude: Set<string>){
   const end=endPosition(p,side);
   return craft.parts.some(c=>c.id!==p.id&&!exclude.has(c.id)&&(c.parent===p.id||p.parent===c.id)&&!PARTS[c.type].radial&&distance(end,endPosition(c,-side))<.001);
 }
@@ -105,16 +106,25 @@ export function resolveAssemblyPlacement(craft: Assembly,type: PartType,hit: Sur
   if(!snap)return free;
   // Only free mating faces can connect; neither an occupied face nor a descendant
   // can silently reparent a branch or create a cycle.
-  const candidates=target?[target]:craft.parts.filter(p=>!exclude.has(p.id));
-  let best: AssemblyPlacement | null=null,nearest=.55;
+  const candidates=craft.parts.filter(p=>!exclude.has(p.id));
+  let best: AssemblyPlacement | null=null,nearest=Infinity;
   for(const p of candidates){
     if(PARTS[p.type].radial)continue;
     for(const side of [1,-1]){
       if(occupied(craft,p,side,exclude))continue;
       if(moving&&occupied(craft,moving,-side,new Set(craft.parts.filter(c=>!exclude.has(c.id)).map(c=>c.id))))continue;
       const end=endPosition(p,side),position=[end[0]+side*PARTS[type].height/2,end[1],end[2]];
-      const d=target?Math.abs(hit!.point[0]-end[0]):distance(point,position);
-      if(d<nearest){nearest=d;best={kind:'stack',parent:p.id,side,position,snapped:true};}
+      const face=attachmentFace(p.type,side)!,incoming=attachmentFace(type,-side)!;
+      const axial=Math.abs(point[0]-position[0]),dy=point[1]-position[1],dz=point[2]-position[2];
+      const direct=target?.id===p.id&&Math.abs(hit!.point[0]-end[0])<.55;
+      // Retain precise point snapping, but also capture broad faces as their
+      // planes approach contact, even when the cursor hits another part.
+      const nearby=distance(point,position)<.55;
+      const overlap=axial<=SNAP_DISTANCE&&facesOverlap(face,incoming,dy,dz,SNAP_DISTANCE);
+      if(!direct&&!nearby&&!overlap)continue;
+      const d=direct?Math.abs(hit!.point[0]-end[0]):axial+Math.hypot(dy,dz)*.1;
+      const score=d+(direct?-1:0)+(matchingFaces(face,incoming)?0:.001);
+      if(score<nearest){nearest=score;best={kind:'stack',parent:p.id,side,position,snapped:true};}
     }
   }
   return best||free;
