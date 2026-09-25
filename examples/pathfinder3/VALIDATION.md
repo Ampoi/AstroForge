@@ -1,5 +1,33 @@
 # Pathfinder3 検証記録 — 2026-09-25
 
+## 外部PyLoNへの移行後の再検証
+
+AstroForgeから`Ros2/`の同梱ソースを削除し、別リポジトリのPyLoNをビルド時に指定する構成で検証した。
+
+- 外部PyLoN: `/home/ampoi/Documents/PyLoN_dev/PyLoN`、リビジョン`d62d948064d6665702d05957a669596244dca8da`。外部リポジトリへの変更なし。
+- SpaceROS: `osrf/space-ros:jazzy-2026.07.0@sha256:a7df4a7bbb7019b45842ce60f4fb7998dcc64ad383c02e9c76ce082031c39fe5`、Python 3.12.3、CycloneDDS。
+- 検証イメージ: `astroforge-pathfinder3:jazzy-2026.07.0`、image ID先頭`2fc11a4d097e`。
+
+AstroForgeのルートから実行:
+
+```bash
+PYLON_ROOT=/home/ampoi/Documents/PyLoN_dev/PyLoN examples/pathfinder3/spaceros.sh build
+examples/pathfinder3/spaceros.sh check
+python3 tests/upstream_compatibility.py /home/ampoi/Documents/PyLoN_dev/PyLoN --systems
+python3 tests/upstream_compatibility.py /home/ampoi/Documents/PyLoN_dev/PyLoN --rover
+python3 tests/bridge_roundtrip.py /home/ampoi/Documents/PyLoN_dev/PyLoN
+bash -n examples/pathfinder3/spaceros.sh
+npm run docs:build
+git diff --check
+```
+
+- 外部の`pylon_interfaces`・`pylon_bridge`とデモの計3パッケージをSpaceROS内でビルド成功。
+- `colcon test`・`colcon test-result`成功。明示的なpytestでもbridge 183件とデモ12件、合計195件成功、失敗・skipなし。
+- 実際のbridge・ROS2クライアントと模擬UDP相手で、取得応答を待つ点火、指令期限、lease更新・解放、セッション変更・制御権喪失・観測途絶時の停止、段分離の状態遷移を確認。本体アプリを起動せず`--network none`で実施。
+- 外部PyLoNによる互換性チェック: systems 425パケット・8指令、rover 106パケット・4指令を確認。実UDP往復も着地・墜落の両ケースで成功。
+- shell構文、ドキュメントビルド、差分チェック成功。存在しない`PYLON_ROOT`はDockerを起動する前に明示的なエラーで停止することも確認。
+- 本体のサーバー・UI・API・物理計算・ライフサイクルへの変更なし。今回は依存ソースの取得方法の変更であり、実飛行・軌道投入は再実行していない。以下は移行前の同梱構成で実施した記録。
+
 ## 構成と独立性
 
 - 基底イメージ: `osrf/space-ros:jazzy-2026.07.0@sha256:a7df4a7bbb7019b45842ce60f4fb7998dcc64ad383c02e9c76ce082031c39fe5`。

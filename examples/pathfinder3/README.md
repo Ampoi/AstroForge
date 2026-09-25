@@ -25,14 +25,16 @@ OrbitController (SpaceROS / ROS2)
 
 ## ビルドとSpaceROSチェック
 
-リポジトリのルートで実行します。Dockerが必要です。
+リポジトリのルートで実行します。Dockerと、別途cloneした[PyLoN](https://github.com/PyLoN-sim/PyLoN)が必要です。取得方法と検証済みリビジョンは[ROS2接続手順](../../docs/ros2.md)を参照してください。
 
 ```bash
-examples/pathfinder3/spaceros.sh build
+PYLON_ROOT=/path/to/PyLoN examples/pathfinder3/spaceros.sh build
 examples/pathfinder3/spaceros.sh check
 ```
 
-基底イメージは `osrf/space-ros:jazzy-2026.07.0`（Dockerfileでdigestを固定）。`pylon_interfaces`・同梱の`pylon_bridge`・`pathfinder3`を専用ワークスペースへビルドします。`check`は外部ネットワークを切ったコンテナでcolconとpytestを実行し、実際のbridge・ROS2クライアントと模擬UDP相手との往復も確認します。AstroForgeは起動しません。
+基底イメージは `osrf/space-ros:jazzy-2026.07.0`（Dockerfileでdigestを固定）。外部PyLoNの`pylon_interfaces`・`pylon_bridge`とAstroForgeの`pathfinder3`を専用ワークスペースへビルドします。`PYLON_ROOT`を省略した場合はAstroForgeと同じ親ディレクトリの`PyLoN`を参照します。必要なソースとライセンスを一時的なDockerビルドコンテキストへコピーし、ビルド後に削除するため、AstroForgeのリポジトリへPyLoNコードは追加しません。`check`と`run`はビルド済みイメージを使用します。
+
+`check`は外部ネットワークを切ったコンテナでcolconとpytestを実行し、実際のbridge・ROS2クライアントと模擬UDP相手との往復も確認します。AstroForgeは起動しません。
 
 ## 打ち上げ
 

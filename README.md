@@ -81,6 +81,8 @@ npm run demo:dashboard
 
 PyLoN v1の飛行制御に関係するサブセットを実装しています。対応範囲は[UDP仕様](docs/protocol.md#pylonとの対応範囲)を参照してください。初期機体は弾道飛行用です。物理モデルは係数に基づく教育・制御実験向けの近似です。
 
+ROS2で接続する場合は[PyLoN](https://github.com/PyLoN-sim/PyLoN)を別途cloneし、そのbridgeとメッセージ定義を利用します。PyLoNのROS2コードは同梱していません。[取得・ビルド・接続手順](docs/ros2.md)を参照してください。AstroForge単体の起動や直接のUDP通信にはPyLoNもROS2も不要です。
+
 ## 貢献
 
 AstroForge本体を開発する方は、[開発・ビルド・コード構成](docs/contributing.md)を参照してください。

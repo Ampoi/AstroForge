@@ -2,7 +2,7 @@
 
 パーツ一覧の「すべて」からセンサー、回転サーボ、直動モーター、ドッキングポートを追加できます。機体の保存・配置は従来と共通です。パーツIDがUDPの対象名になります。センサーIDは上流と同じROS名へ正規化します（小文字化、連続・前後の`_`の整理、数字で始まる場合の`_`付加）。
 
-以下はAstroForgeの教育・制御実験向けモデルです。PyLoNのUDP形式とSI単位を使い、同梱する標準bridgeへ接続できます。KSPの描画・接触・部品強度を再現するものではありません。
+以下はAstroForgeの教育・制御実験向けモデルです。PyLoNのUDP形式とSI単位を使い、別途取得するPyLoNの標準bridgeへ接続できます。KSPの描画・接触・部品強度を再現するものではありません。
 
 ## 搭載センサー
 
@@ -100,13 +100,13 @@
 
 ## ROS2の接続
 
-`Ros2/`に標準の`pylon_bridge`、`pylon_interfaces`、`pylon_vehicle_control`を同梱しています。本体とは別プロセスで起動し、公開UDPだけで通信します。
+`pylon_bridge`、`pylon_interfaces`、`pylon_vehicle_control`は[PyLoNリポジトリ](https://github.com/PyLoN-sim/PyLoN)から別途取得します。AstroForgeにはこれらのソースを同梱しません。本体とは別プロセスで起動し、公開UDPだけで通信します。
 
 ```sh
 source /opt/ros/jazzy/setup.bash
-colcon build --base-paths Ros2 --packages-up-to pylon_bridge pylon_vehicle_control
-source install/setup.bash
+# 別途ビルドしたPyLoNワークスペース
+source /path/to/pylon_ws/install/setup.bash
 ros2 run pylon_bridge udp_bridge --port 49010 --command-port 49011
 ```
 
-[ROS2のビルド・制御ノード・検証手順](https://github.com/Ampoi/AstroForge/blob/main/Ros2/README.md)を参照してください。`pylon_vehicle_control`は世界座標の目標位置・姿勢を受け取り、leaseを取得してbody wrenchを指令します。機体に合った推力上限・ゲインの設定と継続的なsetpoint配信が必要です。
+[ROS2のビルド・制御ノード・検証手順](./ros2)を参照してください。`pylon_vehicle_control`は世界座標の目標位置・姿勢を受け取り、leaseを取得してbody wrenchを指令します。機体に合った推力上限・ゲインの設定と継続的なsetpoint配信が必要です。

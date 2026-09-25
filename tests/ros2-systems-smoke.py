@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Actual DDS topics/services/controller ↔ vendored bridge ↔ AstroForge UDP.
-Source the ROS2 workspace containing Ros2/ before running. Uses a private DDS
+"""Actual DDS topics/services/controller ↔ external PyLoN bridge ↔ AstroForge UDP.
+Source the ROS2 workspace built from the separate PyLoN checkout. Uses a private DDS
  domain and ephemeral UDP ports; never starts or changes the user's app server.
 """
 import json
