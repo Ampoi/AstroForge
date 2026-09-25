@@ -29,7 +29,10 @@ export class PylonProtocol{
     this.generation++;this.epoch=randomUUID().replaceAll('-','');this.vessel=randomUUID().replaceAll('-','');this.sequences=new Map();this.clearOwner('session_changed');this.sim.clearCommands();
   }
   clearOwner(reason: string){this.owner={state:0,controllerId:'',leaseId:'',priority:0,expires:0,sasSuppressed:false,lastSequence:0,reason};this.sim.clearCommands();}
-  expire(){if(this.owner.state===1&&this.clock()>this.owner.expires)this.clearOwner('lease_expired');}
+  expire(){
+    if(this.owner.state===1&&['landed','crashed','destroyed'].includes(this.sim.status))this.clearOwner(`vessel_${this.sim.status}`);
+    else if(this.owner.state===1&&this.clock()>this.owner.expires)this.clearOwner('lease_expired');
+  }
   fields(){return {version:1,runtimeInstance:this.instance,runtimeGeneration:this.generation,runtimeEpoch:this.epoch,runtimeVesselId:this.vessel,vesselId:this.vessel};}
   packet<T extends object>(type: string,fields: T={} as T){return {type,...this.fields(),observationSequence:this.observation,universalTime:this.sim.time,...fields};}
   authority(reason=this.owner.reason){
@@ -138,7 +141,9 @@ export class PylonProtocol{
   }
   telemetry(){
     this.expire();const s=this.sim.snapshot(),now=this.clock(),f=this.sim.flight,active=this.owner.state===1&&!!f&&f.expires>now&&this.sim.charge>0;
-    const session=this.packet('pylon_session',{available:this.available&&!['crashed','landed','destroyed'].includes(s.status),vesselName:this.sim.craft.name,observationSequence:++this.observation,
+    // A landed vessel still has observable state. Ending the session here makes
+    // PyLoN discard the touchdown snapshot before ROS controllers can see it.
+    const session=this.packet('pylon_session',{available:this.available&&s.status!=='destroyed',vesselName:this.sim.craft.name,observationSequence:++this.observation,
       realtimeSinceStartup:now-this.started,paused:!this.available,packed:false,warpRate:this.timeScale||1,physicsWarp:(this.timeScale||1)>1});
     const packets: Packet[]=[session];if(!this.available)return packets;
     const spin=[0,0,EARTH.spin],inverse=qconj(this.sim.quaternion),spinQ=axisAngle([0,0,1],-EARTH.spin*s.time);
