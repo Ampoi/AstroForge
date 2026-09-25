@@ -139,10 +139,13 @@ export class EarthEnvironment{
     this.marker=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,depthWrite:false}));this.marker.scale.set(1.05,1.05,1);this.overlay.add(this.marker);
     this.position=new THREE.Vector3(0,1,0);this.time=0;
   }
-  update(f: FlightSnapshot,trail: number[][]=[]){
+  updatePose(f: FlightSnapshot){
     this.destroyed=f.status==='destroyed';this.time=f.time;this.position.copy(earthFixed(f.position,f.time)).divideScalar(EARTH_RADIUS);
     this.uniforms.sunDirection.value.copy(earthFixed([.3,-.8,.5],f.time)).normalize();
     this.marker.position.copy(this.position).multiplyScalar(10.002);
+  }
+  update(f: FlightSnapshot,trail: number[][]=[]){
+    this.updatePose(f);
     const points=trail.map(p=>earthFixed(p,f.time).multiplyScalar(10.002/EARTH_RADIUS));
     if(points.length){points.push(this.position.clone().multiplyScalar(10.002));const old=this.trail.geometry;this.trail.geometry=new THREE.BufferGeometry().setFromPoints(points);old.dispose();}
     this.trail.visible=points.length>1;

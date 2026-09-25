@@ -9,6 +9,8 @@ import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {makeLaunchSite} from './launch-site.ts';
+import {FrameClock, type FrameRate} from './display.ts';
+import {FlightMotion} from './flight-motion.ts';
 
 const materials: Record<string,THREE.MeshStandardMaterial>={};
 function material(color: THREE.ColorRepresentation,metal=.25,rough=.55){const key=String(color)+metal+rough;return materials[key]??=new THREE.MeshStandardMaterial({color,metalness:metal,roughness:rough});}
@@ -99,6 +101,7 @@ export class RocketScene{
   craft: Assembly=toAssembly({name:'',parts:[]}); stats=assemblyStats(this.craft); parts: LayoutPart[]=[];
   flame=new THREE.Group(); selectionBox: THREE.BoxHelper | null=null; placement: AssemblyPlacement | null=null;
   currentFlight: FlightSnapshot | null=null; craftSignature: string | null=null;
+  frameClock=new FrameClock(); flightMotion=new FlightMotion();
 
   constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{}){
     this.element=element;this.onSelect=onSelect;this.onPlace=onPlace;this.mode='editor';this.selected=null;this.placing=null;this.groups=new Map();this.showMarkers=false;
@@ -159,6 +162,7 @@ export class RocketScene{
     // Only cancel a pointer-driven move here; dragend handles palette cancellation.
     element.addEventListener('pointercancel',()=>{if(this.moving)this.cancelPlacement();},{signal:this.listeners.signal});
     window.addEventListener('blur',()=>this.cancelPlacement(),{signal:this.listeners.signal});
+    document.addEventListener('visibilitychange',()=>{this.frameClock.reset();this.flightMotion.snap();},{signal:this.listeners.signal});
     element.addEventListener('dragover',e=>{if(this.mode==='editor'&&this.placing){e.preventDefault();e.dataTransfer!.dropEffect='copy';this.updatePlacement(e);}},{signal:this.listeners.signal});
     element.addEventListener('dragleave',e=>{if(!element.contains(e.relatedTarget as Node | null)){this.clearPreview();this.onPlacement(null);}},{signal:this.listeners.signal});
     element.addEventListener('drop',e=>{
@@ -276,6 +280,7 @@ export class RocketScene{
     return placement;
   }
   setMode(mode: Mode){
+    this.flightMotion.clear();
     for(const g of this.debrisGroups.values()){this.scene.remove(g);disposeGroup(g);}this.debrisGroups.clear();
     this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.flame.visible=false;
     this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
@@ -318,14 +323,8 @@ export class RocketScene{
   updateFlight(f: FlightSnapshot,trail: number[][]){
     if(this.mode!=='flight')return;
     this.currentFlight=f;this.environment.update(f,trail);
-    // World ECI -> Three at the rotating launch frame; model y is body x.
-    const spin=-7.292115e-5*f.time;
-    const frame=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),spin);
-    const worldToScene=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(0,1,0,0,1,0,0,0,0,0,-1,0,0,0,0,1));
-    const modelToBody=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-Math.PI/2);
-    this.rocket.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...f.quaternion)).multiply(modelToBody);
-    const modelCom=new THREE.Vector3(-f.com[1],f.com[0],f.com[2]).applyQuaternion(this.rocket.quaternion);
-    this.rocket.position.set(-modelCom.x,this.stats.height/2-modelCom.y,-modelCom.z);
+    this.flightMotion.push(f,performance.now());
+    if(document.hidden)this.flightMotion.snap();
     const visibleIds=new Set((f.debris||[]).map(d=>d.id));
     for(const [id,g] of this.debrisGroups)if(!visibleIds.has(id)){this.scene.remove(g);disposeGroup(g);this.debrisGroups.delete(id);}
     for(const d of f.debris||[]){
@@ -337,14 +336,28 @@ export class RocketScene{
         for(const p of layoutCraft(d.craft)){const part=makePart(p.type);part.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)part.rotation.y=p.angle!+Math.PI;g.add(part);}
         this.scene.add(g);this.debrisGroups.set(d.id,g);
       }
+    }
+  }
+  renderFlight(f: FlightSnapshot,now: number){
+    this.environment.updatePose(f);
+    // World ECI -> Three at the rotating launch frame; model y is body x.
+    const spin=-7.292115e-5*f.time;
+    const frame=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),spin);
+    const worldToScene=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().set(0,1,0,0,1,0,0,0,0,0,-1,0,0,0,0,1));
+    const modelToBody=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),-Math.PI/2);
+    this.rocket.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...f.quaternion)).multiply(modelToBody);
+    const modelCom=new THREE.Vector3(-f.com[1],f.com[0],f.com[2]).applyQuaternion(this.rocket.quaternion);
+    this.rocket.position.set(-modelCom.x,this.stats.height/2-modelCom.y,-modelCom.z);
+    for(const d of f.debris){
+      const g=this.debrisGroups.get(d.id);if(!g)continue;
       g.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...d.quaternion)).multiply(modelToBody);
       const offset=earthFixed(d.position.map((v,i)=>v-f.position[i]),f.time),com=new THREE.Vector3(-d.com[1],d.com[0],d.com[2]).applyQuaternion(g.quaternion);
       g.position.copy(offset).add(new THREE.Vector3(0,this.stats.height/2,0)).sub(com);g.visible=offset.length()<25000;
     }
     this.ground.position.copy(earthFixed(f.position,f.time)).negate().add(new THREE.Vector3(0,EARTH_RADIUS+this.stats.height/2,0));
     this.ground.visible=f.altitude<50000;(this.scene.fog as THREE.FogExp2).density=.00012*Math.exp(-f.altitude/8000);
-    this.flame.visible=f.thrust>0&&f.status==='flying';this.flame.scale.y=(.75+Math.sin(performance.now()*.05)*.1)*(f.thrust/60000);
-    this.flame.scale.x=this.flame.scale.z=.9+Math.sin(performance.now()*.02)*.08;
+    this.flame.visible=f.thrust>0&&f.status==='flying';this.flame.scale.y=(.75+Math.sin(now*.05)*.1)*(f.thrust/60000);
+    this.flame.scale.x=this.flame.scale.z=.9+Math.sin(now*.02)*.08;
     this.rocket.visible=f.status!=='destroyed';
   }
   dispose(){
@@ -352,8 +365,14 @@ export class RocketScene{
     this.followControls.dispose();this.globeControls.dispose();disposeGroup(this.scene);this.environment.dispose();
     this.renderer.dispose();this.renderer.domElement.remove();
   }
-  animate(){
-    if(!this.running)return;this.frame=requestAnimationFrame(()=>this.animate());if(document.hidden)return;
+  setFrameRate(rate: FrameRate){this.frameClock.setRate(rate);}
+  get fps(){return this.frameClock.fps;}
+  animate(now=performance.now()){
+    if(!this.running)return;this.frame=requestAnimationFrame(time=>this.animate(time));if(document.hidden)return;
+    const delta=this.frameClock.tick(now);if(delta===null)return;
+    // Keep camera damping consistent when switching between 30 Hz and high-refresh screens.
+    this.controls.dampingFactor=1-Math.pow(.92,delta*60);
+    if(this.mode==='flight'){const flight=this.flightMotion.sample(now);if(flight)this.renderFlight(flight,now);}
     this.controls.update();this.selectionBox?.update();this.renderer.clear();
     const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}

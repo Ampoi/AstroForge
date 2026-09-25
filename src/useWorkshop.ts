@@ -37,6 +37,7 @@ import type {
 import type { AppState, ApiRoutes, UdpState } from "../shared/api.ts";
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
+import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
 export const num = (value: number | null | undefined, digits = 0) =>
   typeof value === "number" && Number.isFinite(value)
@@ -71,6 +72,7 @@ export async function api<K extends keyof ApiRoutes>(
   return result as ApiRoutes[K]["output"];
 }
 export function useWorkshop() {
+  const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
     craftDialog = ref<HTMLDialogElement>(),
@@ -542,6 +544,12 @@ export function useWorkshop() {
     globe.value = value;
     scene?.setView(value);
   }
+  function setDisplayRate(event: Event) {
+    displayRate.value = frameRate((event.target as HTMLSelectElement).value);
+    scene?.setFrameRate(displayRate.value);
+    renderFps.value = 0;
+    try { localStorage.setItem('astroforge-frame-rate', displayRate.value); } catch {}
+  }
   function fit(value = false) {
     front.value = value;
     scene?.fit(value);
@@ -617,6 +625,7 @@ export function useWorkshop() {
     { immediate: true },
   );
   onMounted(() => {
+    try { displayRate.value = frameRate(localStorage.getItem('astroforge-frame-rate')); } catch {}
     try {
       scene = new RocketScene(
         sceneElement.value!,
@@ -627,6 +636,7 @@ export function useWorkshop() {
           preview.value = draft ?? null;
         },
       );
+      scene.setFrameRate(displayRate.value);
     } catch (error) {
       sceneError.value = true;
       console.error(error);
@@ -641,7 +651,10 @@ export function useWorkshop() {
         console.error(error);
       }
     };
-    clockTimer = setInterval(() => (clock.value = new Date()), 1000);
+    clockTimer = setInterval(() => {
+      clock.value = new Date();
+      renderFps.value = scene?.fps ?? 0;
+    }, 1000);
     document.addEventListener("keydown", keydown);
   });
   onUnmounted(() => {
@@ -653,6 +666,10 @@ export function useWorkshop() {
     document.body.classList.remove("flight-mode");
   });
   return {
+    displayRate,
+    renderFps,
+    frameRates,
+    setDisplayRate,
     sceneElement,
     helpDialog,
     craftDialog,

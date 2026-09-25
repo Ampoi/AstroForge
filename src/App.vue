@@ -3,6 +3,10 @@ import PartIcon from "./components/PartIcon.vue";
 import { PARTS } from "../shared/craft.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
+  displayRate,
+  renderFps,
+  frameRates,
+  setDisplayRate,
   sceneElement,
   helpDialog,
   craftDialog,
@@ -391,6 +395,17 @@ function closeOnBackdrop(event: MouseEvent) {
         </svg>
       </div>
       <div class="view-tools">
+        <details class="display-settings">
+          <summary class="icon-button" aria-label="表示設定" title="表示設定">⚙</summary>
+          <div class="display-settings-panel">
+            <label for="display-frame-rate">描画フレームレート</label>
+            <select id="display-frame-rate" :value="displayRate" @change="setDisplayRate">
+              <option v-for="option in frameRates" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <p class="display-fps">実測 {{ renderFps || '—' }} FPS</p>
+            <p>「画面に合わせる」はディスプレイの更新に同期します。実際のFPSは描画負荷によって変わります。</p>
+          </div>
+        </details>
         <button
           id="view-iso"
           class="icon-button"
