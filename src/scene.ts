@@ -9,6 +9,7 @@ import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {makeLaunchSite} from './launch-site.ts';
+import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} from './exhaust.ts';
 import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
 
@@ -57,10 +58,11 @@ export function makePart(type: PartType){
     for(let i=0;i<16;i++){const a=i*Math.PI/8,m=put(g,box(.12,.14,.025,i%2?'#293b43':'#efc46c'),Math.sin(a)*.64,0,Math.cos(a)*.64);m.rotation.y=a;}
   }else if(type==='engine'){
     put(g,cyl(.60,.52,.16,'#77898d',.8),0,.435);
-    put(g,cyl(.23,.23,.3,'#394b53',.8),0,.23);
+    const nozzle=new THREE.Group();nozzle.name='engine-gimbal';nozzle.position.y=.24;g.add(nozzle);
+    put(nozzle,cyl(.23,.23,.3,'#394b53',.8),0,-.01);
     const pts=[[.18,.24],[.15,.13],[.17,.06],[.23,-.10],[.35,-.34],[.46,-.50]].map(([r,y])=>new THREE.Vector2(r,y));
-    const bell=new THREE.Mesh(new THREE.LatheGeometry(pts,40),new THREE.MeshStandardMaterial({color:'#56646c',metalness:.8,roughness:.35,side:THREE.DoubleSide}));put(g,bell);
-    put(g,cyl(.473,.473,.035,'#9ca49a',.8),0,-.5);
+    const bell=new THREE.Mesh(new THREE.LatheGeometry(pts,40),new THREE.MeshStandardMaterial({color:'#56646c',metalness:.8,roughness:.35,side:THREE.DoubleSide}));put(nozzle,bell,0,-.24);
+    put(nozzle,cyl(.473,.473,.035,'#9ca49a',.8),0,-.74);
     for(let i=0;i<4;i++){const a=i*Math.PI/2;put(g,cyl(.035,.035,.4,'#c6a889',.7),Math.cos(a)*.35,.2,Math.sin(a)*.35);}
   }else if(type==='fin'){
     const shape=new THREE.Shape();shape.moveTo(0,.44);shape.lineTo(.16,.38);shape.lineTo(.93,-.4);shape.lineTo(.93,-.53);shape.lineTo(0,-.43);shape.closePath();
@@ -99,7 +101,7 @@ export class RocketScene{
   moving: LayoutPart | null=null; dragPlane: THREE.Plane | null=null; grabOffset: THREE.Vector3 | null=null;
   observer: ResizeObserver; running=false; frame=0; private listeners=new AbortController();
   craft: Assembly=toAssembly({name:'',parts:[]}); stats=assemblyStats(this.craft); parts: LayoutPart[]=[];
-  flame=new THREE.Group(); selectionBox: THREE.BoxHelper | null=null; placement: AssemblyPlacement | null=null;
+  exhaust=new ExhaustEffect(); exhaustTime: number | null=null; exhaustVessel: string | null=null; selectionBox: THREE.BoxHelper | null=null; placement: AssemblyPlacement | null=null;
   currentFlight: FlightSnapshot | null=null; craftSignature: string | null=null;
   frameClock=new FrameClock(); flightMotion=new FlightMotion();
 
@@ -126,7 +128,7 @@ export class RocketScene{
     this.hangar=new THREE.Group();this.ground.add(this.hangar);
     for(const x of [-35,35])for(const z of [-30,30]){const beam=box(.5,35,.5,'#2b424f');put(this.hangar,beam,x,17,z);}
     this.editorGround=this.ground;this.launchSite=makeLaunchSite();this.launchSite.visible=false;this.scene.add(this.launchSite);
-    this.rocket=new THREE.Group();this.scene.add(this.rocket);
+    this.rocket=new THREE.Group();this.scene.add(this.rocket);this.scene.add(this.exhaust.mesh);
     this.markers=new THREE.Group();this.scene.add(this.markers);
     this.snapGroup=new THREE.Group();this.scene.add(this.snapGroup);
     this.preview=new THREE.Group();this.scene.add(this.preview);this.onPlacement=onPlacement;
@@ -195,10 +197,7 @@ export class RocketScene{
     if(this.mode==='flight'&&oldHeight){const dy=(this.stats.height-oldHeight)/2;this.followCamera.position.y+=dy;this.followControls.target.y+=dy;}
     this.select(null);for(const g of this.groups.values()){this.rocket.remove(g);disposeGroup(g);}this.groups.clear();
     for(const p of this.parts){const g=makePart(p.type);g.userData.partId=p.id;g.position.set(-p.position[1],p.position[0],p.position[2]);if(p.def.radial)g.rotation.y=p.angle!+Math.PI;if(p.connected===false)this.ghostMaterial(g);this.rocket.add(g);this.groups.set(p.id,g);}
-    if(this.flame){this.rocket.remove(this.flame);disposeGroup(this.flame);}
-    this.flame=new THREE.Group();
-    const outer=new THREE.Mesh(new THREE.ConeGeometry(.35,3,24),new THREE.MeshBasicMaterial({color:'#ffa060',transparent:true,opacity:.6,depthWrite:false}));outer.rotation.z=Math.PI;outer.position.y=-1.5;this.flame.add(outer);
-    const inner=new THREE.Mesh(new THREE.ConeGeometry(.17,1.7,24),new THREE.MeshBasicMaterial({color:'#eafcff',transparent:true,opacity:.9,depthWrite:false}));inner.rotation.z=Math.PI;inner.position.y=-.8;this.flame.add(inner);this.flame.visible=false;this.rocket.add(this.flame);
+    this.exhaust.clear();this.exhaustTime=null;
     for(const c of [...this.markers.children]){this.markers.remove(c);disposeGroup(c);}
     const core=this.parts.filter(p=>!p.def.radial&&p.connected!==false),bottom=core.length?Math.min(...core.map(p=>p.position[0]-p.def.height/2)):0,axis=core[0]?.position||[0,0,0];
     for(const [y,color] of ([[this.stats.com,'#f8b178'],[this.stats.cp,'#78c7c0']] as [number,string][])){
@@ -282,7 +281,8 @@ export class RocketScene{
   setMode(mode: Mode){
     this.flightMotion.clear();
     for(const g of this.debrisGroups.values()){this.scene.remove(g);disposeGroup(g);}this.debrisGroups.clear();
-    this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.flame.visible=false;
+    this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=null;
+    for(const g of this.groups.values())g.getObjectByName('engine-gimbal')?.quaternion.identity();
     this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
     this.editorGround.visible=mode==='editor';this.launchSite.visible=mode==='flight';this.ground=mode==='flight'?this.launchSite:this.editorGround;
     this.ground.position.set(0,0,0);this.followControls.maxPolarAngle=mode==='flight'?Math.PI*.49:Math.PI*.91;this.setView(false);
@@ -356,13 +356,38 @@ export class RocketScene{
     }
     this.ground.position.copy(earthFixed(f.position,f.time)).negate().add(new THREE.Vector3(0,EARTH_RADIUS+this.stats.height/2,0));
     this.ground.visible=f.altitude<50000;(this.scene.fog as THREE.FogExp2).density=.00012*Math.exp(-f.altitude/8000);
-    this.flame.visible=f.thrust>0&&f.status==='flying';this.flame.scale.y=(.75+Math.sin(now*.05)*.1)*(f.thrust/60000);
-    this.flame.scale.x=this.flame.scale.z=.9+Math.sin(now*.02)*.08;
+    this.updateExhaust(f,worldToScene.clone().multiply(frame));
     this.rocket.visible=f.status!=='destroyed';
+  }
+  updateExhaust(f: FlightSnapshot,inertialToScene: THREE.Quaternion){
+    if(this.exhaustVessel!==f.id){this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=f.id;}
+    const dt=this.exhaustTime===null?0:f.time-this.exhaustTime;this.exhaustTime=f.time;
+    const inverseFrame=inertialToScene.clone().invert(),center=new THREE.Vector3(0,this.stats.height/2,0);
+    const bodyRotation=new THREE.Quaternion(...f.quaternion),omega=new THREE.Vector3(...f.omega).applyQuaternion(bodyRotation);
+    const velocity=new THREE.Vector3(...f.velocity),origin=new THREE.Vector3(...f.position),up=origin.clone().normalize();
+    const toInertial=(point: THREE.Vector3)=>point.sub(center).applyQuaternion(inverseFrame);
+    const emitters: ExhaustEmitter[]=[],obstacles: ExhaustObstacle[]=[];
+    for(const p of this.parts){
+      const g=this.groups.get(p.id);if(!g)continue;
+      if(p.type==='engine'){
+        const nozzle=g.getObjectByName('engine-gimbal')!,engine=f.engines.find(e=>e.id===p.id);
+        nozzle.quaternion.copy(engineGimbal(engine?.gimbalPitch??0,engine?.gimbalYaw??0));
+        if(!engine?.available||engine.thrust<=0||!['pad','flying'].includes(f.status))continue;
+        const position=toInertial(nozzle.localToWorld(new THREE.Vector3(0,-.76,0)));
+        const direction=new THREE.Vector3(0,-1,0).applyQuaternion(nozzle.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(inverseFrame);
+        emitters.push({position,direction,velocity:velocity.clone().add(new THREE.Vector3().crossVectors(omega,position)),throttle:engine.thrust/Math.max(1,engine.maxThrust)});
+      }else if(!p.def.radial&&p.connected!==false){
+        const radius='depth' in p.def&&typeof p.def.depth==='number'?Math.min(.6,p.def.depth/2):.6,half=Math.max(0,p.def.height/2-radius);
+        obstacles.push({start:toInertial(g.localToWorld(new THREE.Vector3(0,-half,0))),end:toInertial(g.localToWorld(new THREE.Vector3(0,half,0))),radius,velocity:velocity.clone().add(new THREE.Vector3().crossVectors(omega,toInertial(g.getWorldPosition(new THREE.Vector3()))))});
+      }
+    }
+    this.exhaust.mesh.quaternion.copy(inertialToScene);this.exhaust.mesh.position.copy(center);
+    this.exhaust.update(dt,{origin,airVelocity:new THREE.Vector3(-7.292115e-5*origin.y,7.292115e-5*origin.x,0),
+      up,groundHeight:f.altitudeAsl,density:Math.exp(-Math.max(0,f.altitudeAsl)/8500),emitters,obstacles},this.camera);
   }
   dispose(){
     this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();
-    this.followControls.dispose();this.globeControls.dispose();disposeGroup(this.scene);this.environment.dispose();
+    this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();
     this.renderer.dispose();this.renderer.domElement.remove();
   }
   setFrameRate(rate: FrameRate){this.frameClock.setRate(rate);}
