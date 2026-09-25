@@ -1,6 +1,6 @@
 import type {Craft, Design, Assembly, AssemblyPart, Part, PartType, LayoutPart, SurfaceHit, AssemblyPlacement, PlacementOptions} from './types.ts';
 import {record} from './errors.ts';
-import {PARTS,layoutCraft,craftStats,surfaceRadius,symmetryAngles,validateCraft} from './craft.ts';
+import {isEngine,PARTS,layoutCraft,craftStats,surfaceRadius,symmetryAngles,validateCraft} from './craft.ts';
 import {SNAP_DISTANCE,SURFACE_LEVELS,SURFACE_ANGLES} from './placement.ts';
 import {attachmentFace,facesOverlap,matchingFaces} from './attachment.ts';
 
@@ -89,7 +89,7 @@ export function resolveAssemblyPlacement(craft: Assembly,type: PartType,hit: Sur
   if(movingId===craft.rootId)return {...free,kind:'root'};
   const target=craft.parts.find(p=>p.id===hit?.id&&!exclude.has(p.id));
   if(PARTS[type].radial){
-    if(!target||PARTS[target.type].radial||target.type==='engine'||Math.abs(hit!.normal?.[0]||0)>.85)return free;
+    if(!target||PARTS[target.type].radial||isEngine(target.type)||Math.abs(hit!.normal?.[0]||0)>.85)return free;
     let offset=Math.max(-.5,Math.min(.5,(hit!.point[0]-target.position[0])/PARTS[target.type].height));
     let angle=Math.atan2(hit!.point[2]-target.position[2],hit!.point[1]-target.position[1]),snapped=false;
     if(snap){

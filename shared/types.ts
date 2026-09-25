@@ -1,6 +1,6 @@
 /** Shared domain contracts. Distances are metres, masses kg and angles radians. */
 export type PartType =
-  "pod" | "tank" | "engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel" | "lidar2d" | "lidar3d" | "camera" | "startracker" | "servo" | "linear" | "docking";
+  "pod" | "tank" | "engine" | "booster_engine" | "vacuum_engine" | "decoupler" | "fin" | "rcs" | "battery" | "solar" | "chassis" | "wheel" | "lidar2d" | "lidar3d" | "camera" | "startracker" | "servo" | "linear" | "docking";
 export interface PartDefinition {
   name: string;
   label: string;

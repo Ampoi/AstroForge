@@ -4,7 +4,7 @@ import type {FlightSnapshot} from '../server/types.ts';
 import {toAssembly} from '../shared/assembly.ts';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {PARTS,layoutCraft,surfaceRadius,WHEEL} from '../shared/craft.ts';
+import {isEngine,PARTS,layoutCraft,surfaceRadius,WHEEL} from '../shared/craft.ts';
 import {SURFACE_LEVELS,SURFACE_ANGLES} from '../shared/placement.ts';
 import {assemblyLayout,assemblyStats,movingIds,occupied,resolveAssemblyPlacement,placeAssembly} from '../shared/assembly.ts';
 import {attachmentFace,SLIM_DIAMETER} from '../shared/attachment.ts';
@@ -85,7 +85,7 @@ export function makePart(type: PartType, merge=true){
     put(g,cyl(.64,.64,.18,'#d7a54e',.6));
     for(const y of [-.09,.09])put(g,cyl(.645,.645,.035,'#52646b',.75),0,y);
     for(let i=0;i<16;i++){const a=i*Math.PI/8,m=put(g,box(.12,.14,.025,i%2?'#293b43':'#efc46c'),Math.sin(a)*.64,0,Math.cos(a)*.64);m.rotation.y=a;}
-  }else if(type==='engine'){
+  }else if(isEngine(type)){
     put(g,cyl(.60,.52,.16,'#77898d',.8),0,.435);
     const nozzle=new THREE.Group();nozzle.name='engine-gimbal';nozzle.position.y=.24;g.add(nozzle);
     put(nozzle,cyl(.23,.23,.3,'#394b53',.8),0,-.01);
@@ -257,7 +257,7 @@ export class RocketScene{
     for(const p of this.parts.filter(p=>!p.def.radial&&!excluded.has(p.id))){
       if(type&&PARTS[type].radial){
         if(!this.placementOptions.snap)continue;
-        if(p.type==='engine')continue;
+        if(isEngine(p.type))continue;
         for(const offset of SURFACE_LEVELS)for(const a of (type==='wheel'?[0,Math.PI]:SURFACE_ANGLES)){
           const radius=surfaceRadius(p.type,offset,a)+.012;
           const dot=new THREE.Mesh(new THREE.SphereGeometry(.025,8,6),new THREE.MeshBasicMaterial({color:'#99e4d7',transparent:true,opacity:.8}));
@@ -447,7 +447,7 @@ export class RocketScene{
     const emitters: ExhaustEmitter[]=[],obstacles: ExhaustObstacle[]=[];
     for(const p of this.parts){
       const g=this.groups.get(p.id);if(!g)continue;
-      if(p.type==='engine'){
+      if(isEngine(p.type)){
         const nozzle=g.getObjectByName('engine-gimbal')!,engine=f.engines.find(e=>e.id===p.id);
         nozzle.quaternion.copy(engineGimbal(engine?.gimbalPitch??0,engine?.gimbalYaw??0));
         if(!engine?.available||engine.thrust<=0||!['pad','flying'].includes(f.status))continue;

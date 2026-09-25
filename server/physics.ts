@@ -2,7 +2,7 @@ import type {Craft, FlightStatus, Actuation, EngineCommand, RcsCommand, FlightCo
 import type {PhysicsKernel, FlightSnapshot} from './types.ts';
 import {randomUUID} from 'node:crypto';
 import {add,sub,mul,dot,cross,norm,unit,clamp,qnorm,qconj,qmul,rotate,axisAngle,matVec} from '../shared/math.ts';
-import {PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GROUND_ALTITUDE} from '../shared/craft.ts';
+import {isEngine,PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GROUND_ALTITUDE} from '../shared/craft.ts';
 
 import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
 import {roverForces,WHEEL} from './rover.ts';
@@ -151,22 +151,23 @@ export class Simulation{
   }
   actuation(now: number,dt: number){
     const atmospheric=atmosphere(norm(this.position)-EARTH.radius),fraction=clamp(atmospheric.pressure/101325,0,1);
-    const isp=PARTS.engine.ispVac-(PARTS.engine.ispVac-PARTS.engine.isp)*fraction;
-    const maxThrust=PARTS.engine.thrust*isp/PARTS.engine.isp;
     const powered=!this.passive&&this.charge>0&&!['crashed','landed','destroyed'].includes(this.status);
     const activeStage=stages(this.craft).at(-1)!,activeIds=new Set(activeStage.map(p=>p.id));
     const stageFuel=activeStage.reduce((s,p)=>s+(this.tankFuel[p.id]||0),0);
     const flight=powered&&this.flight && this.flight.expires>now?this.flight:{pitch:0,yaw:0,roll:0};
     const wrench=powered&&this.wrench && this.wrench.expires>now?this.wrench:null;
     let force=[0,0,0],torque=[0,0,0],thrust=0;
-    const engineResults=[];
-    for(const p of this.props.parts.filter(p=>p.type==='engine')){
+    const engineResults=[];let consumed=0;
+    for(const p of this.props.parts.filter(p=>isEngine(p.type))){
+      const isp=p.def.ispVac!-(p.def.ispVac!-p.def.isp!)*fraction;
+      const maxThrust=p.def.thrust!*isp/p.def.isp!;
       const exposed=activeIds.has(p.id),c=this.engines[p.id],active=powered&&exposed&&c?.enabled&&c.expires>now;
       let t=wrench&&exposed?clamp(wrench.force[0],0,maxThrust):(active?clamp(c.targetThrust,0,maxThrust):0);
       const gp=active&&c.hasGimbalCommand?c.gimbalPitch:flight.pitch;
       const gy=active&&c.hasGimbalCommand?c.gimbalYaw:flight.yaw;
       const direction=rotate(p.rotation??[0,0,0,1],unit([1,-gy*Math.tan(Math.PI/30),gp*Math.tan(Math.PI/30)]));
       t*=Math.min(1,stageFuel/(t/(isp*G0)*dt||1));
+      consumed+=t/(isp*G0)*dt;
       const f=mul(direction,t);force=add(force,f);torque=add(torque,cross(sub(p.position,this.props.com),f));thrust+=t;
       engineResults.push({id:p.id,thrust:t,maxThrust:exposed?maxThrust:0,available:exposed,fuel:exposed?stageFuel:0,gimbalPitch:gp,gimbalYaw:gy});
     }
@@ -186,7 +187,6 @@ export class Simulation{
     let watts=0;
     if(!behind)for(const p of this.props.parts.filter(p=>p.type==='solar'))watts+=PARTS.solar.watts*Math.abs(dot(rotate(this.quaternion,[0,-Math.sin(p.angle!),Math.cos(p.angle!)]),sun));
     this.charge=clamp(this.charge+(watts-15-norm(wheel)*.12)*dt/3600,0,this.stats.power);
-    const consumed=thrust/(isp*G0)*dt;
     for(const p of activeStage)if(p.type==='tank')this.tankFuel[p.id]=Math.max(0,this.tankFuel[p.id]-consumed*this.tankFuel[p.id]/(stageFuel||1));
     this.mono=Math.max(0,this.mono-rcsUsed/(220*G0)*dt);
     const rcsResults=blocks.map(p=>{

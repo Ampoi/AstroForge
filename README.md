@@ -39,6 +39,12 @@ npm run demo:dashboard
 
 機体の形状や段数に依存せず、manifestは名前の入力候補にだけ使用します。デモは独自の画面・サーバーを持つ外部UDPクライアントで、本体のHTTP API・内部状態にはアクセスしません。[起動方法と操作](examples/udp-dashboard/README.md)を参照してください。
 
+## Pathfinder3の低地球軌道投入
+
+2段式の軌道投入機 **Pathfinder3** と、SpaceROS上で動く独立したROS2自動操縦デモを用意しています。機体プリセットを発射台へ配置し、公開UDP bridgeを介して点火・段分離・約200 kmへの軌道投入を行います。
+
+[ビルド・SpaceROSチェック・打ち上げ手順](examples/pathfinder3/README.md)を参照してください。
+
 ## UDPで何を送る・受け取るか
 
 以下は初期機体の既定ポートです。どちらもクライアント側から見た向きです。

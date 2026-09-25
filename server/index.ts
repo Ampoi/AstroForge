@@ -12,7 +12,7 @@ import {FlightWorld} from './world.ts';
 import {physicsKernel} from './physics-kernel.ts';
 import {randomUUID} from 'node:crypto';
 import {VehicleUdp} from './vehicle-udp.ts';
-import {starterCraft,twoStageCraft,roverCraft,validateCraft,launchIssues} from '../shared/craft.ts';
+import {pathfinder3Craft,starterCraft,twoStageCraft,roverCraft,validateCraft,launchIssues} from '../shared/craft.ts';
 import {emptyAssembly} from '../shared/assembly.ts';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -24,14 +24,14 @@ try{craft=validateCraft(JSON.parse(await readFile(resolve(dataDir,'craft.json'),
 let savedCrafts: LibraryEntry[]=[];
 try{savedCrafts=JSON.parse(await readFile(resolve(dataDir,'crafts.json'),'utf8')).map((value: unknown)=>{const entry=record(value);if(typeof entry.id!=='string')throw Error('Invalid library id');return {id:entry.id,craft:validateCraft(entry.craft)};});}catch(e){if(errorCode(e)!=='ENOENT')console.warn('Craft library could not be loaded:',errorMessage(e));}
 if(savedCrafts.length)craft=structuredClone(savedCrafts.at(-1)!.craft);
-else if(![starterCraft(),twoStageCraft(),roverCraft()].some(p=>p.name===craft.name&&JSON.stringify(p.parts)===JSON.stringify(craft.parts)))savedCrafts=[{id:randomUUID(),craft:structuredClone(craft)}];
+else if(![starterCraft(),twoStageCraft(),roverCraft(),pathfinder3Craft()].some(p=>p.name===craft.name&&JSON.stringify(p.parts)===JSON.stringify(craft.parts)))savedCrafts=[{id:randomUUID(),craft:structuredClone(craft)}];
 let world=new FlightWorld(launchIssues(craft as Craft).length?twoStageCraft():craft as Craft),sim=world.active;
 const udp=new VehicleUdp(config),clients=new Map<ServerResponse,{compact:boolean;revision:number}>();
 const streamEncoder=new StateStreamEncoder();
 let mode: Mode='flight',physicsMs=0;
 let controlQueue=Promise.resolve();
 function changeControl(operation: ()=>Promise<void>){const pending=controlQueue.then(operation);controlQueue=pending.catch(()=>{});return pending;}
-const presets=[{id:'starter',craft:starterCraft()},{id:'two-stage',craft:twoStageCraft()},{id:'rover',craft:roverCraft()}];
+const presets=[{id:'starter',craft:starterCraft()},{id:'two-stage',craft:twoStageCraft()},{id:'rover',craft:roverCraft()},{id:'pathfinder3',craft:pathfinder3Craft()}];
 const library=()=>[...presets,...savedCrafts];
 let saveQueue=Promise.resolve();
 function saveCraft(input: Record<string, unknown>){

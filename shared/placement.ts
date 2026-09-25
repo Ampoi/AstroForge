@@ -1,5 +1,5 @@
 import type {Craft, PartType, SurfaceHit} from './types.ts';
-import {PARTS,layoutCraft,surfaceRadius} from './craft.ts';
+import {isEngine,PARTS,layoutCraft,surfaceRadius} from './craft.ts';
 
 export const SNAP_DISTANCE=.12;
 export const SURFACE_LEVELS=[-.4,0,.4];
@@ -13,7 +13,7 @@ export function resolvePlacement(craft: Craft,type: PartType,hit: SurfaceHit | n
   if(!def||!target||PARTS[target.type].radial||type==='pod')return null;
   const part=layoutCraft(craft).find(p=>p.id===target.id)!,localX=hit!.point[0]-part.position[0];
   if(def.radial){
-    if(target.type==='engine'||Math.abs(hit!.normal?.[0]||0)>.85)return null;
+    if(isEngine(target.type)||Math.abs(hit!.normal?.[0]||0)>.85)return null;
     let offset=Math.max(-.5,Math.min(.5,localX/part.def.height)),angle=Math.atan2(hit!.point[2],hit!.point[1]);
     let snapped=false;
     if(snap){
@@ -31,7 +31,7 @@ export function resolvePlacement(craft: Craft,type: PartType,hit: SurfaceHit | n
   if(index===0)return null;
   // Axial components mate on end faces. A side hit selects the nearest end face.
   const trial=[...core];trial.splice(index,0,{id:'placement_preview',type});
-  if(trial.some((p,j)=>p.type==='engine'&&j<trial.length-1&&trial[j+1].type!=='decoupler'))return null;
+  if(trial.some((p,j)=>isEngine(p.type)&&j<trial.length-1&&trial[j+1].type!=='decoupler'))return null;
   return {kind:'stack',target:target.id,side,index,snapped:true};
 }
 

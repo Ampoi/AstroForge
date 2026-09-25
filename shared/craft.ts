@@ -20,6 +20,8 @@ const definitions={
   pod:{name:'コマンドポッド',label:'CP-1 Pathfinder',category:'command',description:'フライトコンピューターと姿勢用リアクションホイール。',mass:220,height:1.25,color:'#e0e8e8',power:80,wheelTorque:180},
   tank:{name:'燃料タンク',label:'FT-1200 Propellant',category:'fuel',description:'液体燃料・酸化剤をまとめて搭載。スタックして容量を追加。',mass:90,height:2.4,fuel:1200,color:'#dce2de'},
   engine:{name:'液体燃料エンジン',label:'LE-60 Kestrel',category:'propulsion',description:'60 kN・ジンバル ±6°。推力はUDPで個別に指定。',mass:150,height:1.05,thrust:60000,isp:310,ispVac:345,color:'#9caab0'},
+  booster_engine:{name:'高推力エンジン',label:'LE-350 Peregrine',category:'propulsion',description:'350 kN・比推力300〜340秒。軌道投入用の離陸段。ジンバル ±6°。',mass:500,height:1.05,thrust:350000,isp:300,ispVac:340,color:'#ad8965'},
+  vacuum_engine:{name:'真空用エンジン',label:'LE-80 Albatross',category:'propulsion',description:'真空80 kN・比推力450秒。上段用。海面では比推力280秒。ジンバル ±6°。',mass:180,height:1.05,thrust:80000*280/450,isp:280,ispVac:450,color:'#7aaeb8'},
   decoupler:{name:'分離リング',label:'DC-125 Stack separator',category:'structure',description:'このリングと下側の段を切り離します。上段エンジンの下に挟むと多段化できます。',mass:28,height:.22,impulse:120,color:'#e3ae58'},
   fin:{name:'安定翼',label:'AF-1 Delta fin',category:'aero',description:'空力で機体を安定化。ミラー・放射状対称に対応。',mass:12,height:0.9,area:0.55,radial:true,color:'#d1dbdc'},
   rcs:{name:'RCSスラスター',label:'RC-4 Attitude block',category:'propulsion',description:'最大250 N。独立した一液式推進剤を搭載。',mass:9,height:0.28,radial:true,mono:8,thrust:250,color:'#a8b4bd'},
@@ -29,6 +31,18 @@ const definitions={
   solar:{name:'ソーラーパネル',label:'SP-120 Solar array',category:'electrical',description:'最大120 W。太陽方向と地球の影に応じて発電。',mass:8,height:0.8,radial:true,watts:120,color:'#36778e'}
 } satisfies Record<PartType, PartDefinition>;
 export const PARTS: {[K in PartType]: typeof definitions[K] & PartDefinition} = definitions;
+export const isEngine=(type:PartType)=>type==='engine'||type==='booster_engine'||type==='vacuum_engine';
+export function pathfinder3Craft(): Craft {
+  return {name:'Pathfinder3',parts:[
+    {id:'pod',type:'pod'},{id:'battery',type:'battery'},
+    ...Array.from({length:3},(_,i)=>({id:`upper_tank_${i+1}`,type:'tank' as const})),
+    {id:'upper_engine',type:'vacuum_engine'},{id:'stage_separator',type:'decoupler'},
+    ...Array.from({length:8},(_,i)=>({id:`booster_tank_${i+1}`,type:'tank' as const})),
+    {id:'booster_engine',type:'booster_engine'},
+    ...Array.from({length:4},(_,i)=>({id:`booster_fin_${i+1}`,type:'fin' as const,parent:'booster_tank_8',offset:-.4,angle:i*Math.PI/2})),
+    ...Array.from({length:4},(_,i)=>({id:`upper_rcs_${i+1}`,type:'rcs' as const,parent:'upper_tank_1',offset:.3,angle:i*Math.PI/2}))
+  ]};
+}
 export function starterCraft(): Craft{
   return {name:'Pathfinder 01',parts:[
     {id:'pod_1',type:'pod'},{id:'battery_1',type:'battery'},
@@ -77,8 +91,8 @@ export function validateCraft(value: unknown): Craft{
   if(new Set(sensorNames).size!==sensorNames.length)throw Error('センサーIDは大文字・小文字を区別せず一意にしてください');
   const core=parts.filter(p=>!PARTS[p.type].radial);
   if(parts.filter(p=>p.type==='pod').length!==1)throw Error('コマンドポッドを1個配置してください');
-  if(core.some((p,i)=>p.type==='engine'&&i!==core.length-1&&core[i+1].type!=='decoupler'))throw Error('エンジンの下には分離リングを配置してください');
-  for(const p of parts.filter(p=>PARTS[p.type].radial))if(!core.some(c=>c.id===p.parent&&c.type!=='engine'))throw Error('側面パーツの取り付け先がありません');
+  if(core.some((p,i)=>isEngine(p.type)&&i!==core.length-1&&core[i+1].type!=='decoupler'))throw Error('エンジンの下には分離リングを配置してください');
+  for(const p of parts.filter(p=>PARTS[p.type].radial))if(!core.some(c=>c.id===p.parent&&!isEngine(c.type)))throw Error('側面パーツの取り付け先がありません');
   if(input.rootId!==undefined&&!core.some(p=>p.id===input.rootId))throw Error('ルートパーツがありません');
   return {name:input.name.trim(),...(input.rootId!==undefined?{rootId:input.rootId as string}:{}),parts};
 }
@@ -143,20 +157,22 @@ export function craftStats(craft: Craft){
   const props=massProperties(craft),dry=massProperties(craft,0,0).mass;
   const fuel=craft.parts.reduce((s,p)=>s+(PARTS[p.type].fuel||0),0);
   const mono=craft.parts.reduce((s,p)=>s+(PARTS[p.type].mono||0),0);
-  const thrust=stages(craft).at(-1)!.some(p=>p.type==='engine')?PARTS.engine.thrust:0;
+  const activeEngine=stages(craft).at(-1)!.find(p=>isEngine(p.type));
+  const engine=activeEngine?PARTS[activeEngine.type]:null,thrust=engine?.thrust??0;
   const height=craft.parts.reduce((s,p)=>s+(PARTS[p.type].radial?0:PARTS[p.type].height),0);
   const fins=props.parts.filter(p=>p.type==='fin');
   const cp=(height*.75*2+fins.reduce((s,p)=>s+p.position[0]*4,0))/(2+fins.length*4);
   let remainingMass=props.mass,deltaV=0;
   for(const stage of stages(craft).toReversed()){
     const stageFuel=stage.reduce((s,p)=>s+(PARTS[p.type].fuel||0),0),ids=new Set(stage.map(p=>p.id));
-    if(stage.some(p=>p.type==='engine')&&stageFuel)deltaV+=PARTS.engine.ispVac*G0*Math.log(remainingMass/(remainingMass-stageFuel));
+    const stageEngine=stage.find(p=>isEngine(p.type));
+    if(stageEngine&&stageFuel)deltaV+=PARTS[stageEngine.type].ispVac!*G0*Math.log(remainingMass/(remainingMass-stageFuel));
     remainingMass-=props.parts.filter(p=>ids.has(p.id)||ids.has(p.parent!)).reduce((s,p)=>s+p.mass,0);
   }
   const activeFuel=stages(craft).at(-1)!.reduce((s,p)=>s+(PARTS[p.type].fuel||0),0);
   return {mass:props.mass,dry,fuel,mono,thrust,height,com:props.com[0],cp,stability:(props.com[0]-cp)/DIAMETER,stageCount:stages(craft).length,
     twr:thrust/(props.mass*G0),deltaV,
-    burnTime:thrust?activeFuel*PARTS.engine.isp*G0/thrust:0,
+    burnTime:thrust?activeFuel*engine!.isp!*G0/thrust:0,
     power:craft.parts.reduce((s,p)=>s+(PARTS[p.type].power||0),0)};
 }
 export function launchIssues(craft: Craft){
@@ -167,7 +183,7 @@ export function launchIssues(craft: Craft){
     if(craft.parts.filter(p=>p.type==='wheel').length<3)issues.push('ローバーには3輪以上のタイヤを取り付けてください');
     return issues;
   }
-  if(!active.some(p=>p.type==='engine'))issues.push('最下段にエンジンを取り付けてください');
+  if(!active.some(p=>isEngine(p.type)))issues.push('最下段にエンジンを取り付けてください');
   if(!active.some(p=>p.type==='tank'))issues.push('最下段に燃料タンクを取り付けてください');
   for(const p of craft.parts.filter(p=>p.type==='decoupler'))try{splitCraft(craft,p.id);}catch(e){issues.push(errorMessage(e));}
   if(s.thrust&&s.twr<=1)issues.push('推力重量比が1以下です。燃料タンクを減らしてください');

@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "reason": "Unpowered orbit verified for 60 simulation seconds",
+  "target_altitude": 200000.0,
+  "samples": 1745,
+  "max_telemetry_gap_sec": 0.061477613999159075,
+  "wall_duration_sec": 87.44904017000044,
+  "transitions": [
+    {
+      "time": 63.04999999999706,
+      "phase": "BOOST",
+      "stage": 1
+    },
+    {
+      "time": 143.9750000000334,
+      "phase": "SEPARATION",
+      "stage": 1
+    },
+    {
+      "time": 144.4666666666996,
+      "phase": "STAGE_CLEARANCE",
+      "stage": 2
+    },
+    {
+      "time": 145.23333333336558,
+      "phase": "INSERTION",
+      "stage": 2
+    },
+    {
+      "time": 439.4666666664313,
+      "phase": "ORBIT_VERIFY",
+      "stage": 2
+    }
+  ],
+  "final": {
+    "time": 499.47499999971006,
+    "phase": "ORBIT_VERIFY",
+    "stage": 2,
+    "altitude": 200149.9671780523,
+    "apoapsis": 203840.2474922454,
+    "periapsis": 195045.30876962468,
+    "vertical_speed": 5.144500471165429,
+    "horizontal_speed": 7308.802446956134,
+    "mass": 1019.8793566123416,
+    "fuel_units": 22.219142095110747,
+    "thrust_command": 0.0,
+    "thrust_actual": 0.0,
+    "pitch": 0.0,
+    "yaw": 0.0,
+    "roll": 0.0,
+    "tilt_deg": 167.04431385106045,
+    "dynamic_pressure": 0.0
+  },
+  "transport": "ROS2 -> PyLoN bridge -> public UDP -> AstroForge"
+}

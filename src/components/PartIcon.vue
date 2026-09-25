@@ -3,6 +3,8 @@ import type { PartType } from "../../shared/types.ts";
 defineProps<{ type: PartType }>();
 const sensor='<rect x="10" y="12" width="27" height="28" rx="4" fill="#627a94"/><circle cx="24" cy="26" r="9" fill="#143040" stroke="#6ed9d0" stroke-width="3"/>';
 const shapes: Record<PartType, string> = {
+  booster_engine:'<path d="M9 9h29v6H9Z M18 15h10l-2 11 10 19H10l10-19Z" fill="#ad8965"/>',
+  vacuum_engine:'<path d="M9 9h29v6H9Z M18 15h10l-2 11 10 19H10l10-19Z" fill="#7aaeb8"/>',
   docking:'<circle cx="23" cy="26" r="17" fill="#bac9ce"/><circle cx="23" cy="26" r="11" fill="#263f4b"/><path d="M7 23h7M32 23h7M20 10v7M20 35v7" stroke="#e5b569" stroke-width="4"/>',
   servo:'<rect x="7" y="10" width="31" height="31" rx="4" fill="#d9a651"/><circle cx="23" cy="25" r="10" fill="#334b55"/><path d="M23 25 37 10" stroke="#bac9ce" stroke-width="6"/>',
   linear:'<path d="M19 5h8v22h-8Z" fill="#b9c8ce"/><path d="M12 23h22v23H12Z" fill="#617b88"/><path d="M14 22h18M14 46h18M16 5h14" stroke="#e5b569" stroke-width="3"/>',

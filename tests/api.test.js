@@ -28,7 +28,7 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   const get=()=>fetch(`http://127.0.0.1:${port}/api/state`).then(r=>r.json());
   async function post(path,input,code=200){const r=await fetch(`http://127.0.0.1:${port}/api/${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});const value=await r.json();assert.equal(r.status,code,JSON.stringify(value));return value;}
   await start();let s=await get();assert.equal(s.mode,'flight');assert.equal(s.vehicles.length,1);assert.equal(s.timeScale,1);
-  assert.deepEqual(s.craft,twoStageCraft());assert.equal(s.library.length,3,'Default presets must not become saved duplicates');
+  assert.deepEqual(s.craft,twoStageCraft());assert.equal(s.library.length,4,'Default presets must not become saved duplicates');
   assert.equal(s.connection.physicsBackend,process.env.ASTROFORGE_PHYSICS==='js'?'js':'zig-wasm');
   // Production serves Vite output and public assets; application source is not a static endpoint.
   const homepage=await fetch(`http://127.0.0.1:${port}/`);assert.equal(homepage.status,200);
@@ -49,7 +49,7 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   await post('craft',{...starterCraft(),rootId:'missing'},400);
   await post('craft',{...starterCraft(),name:'Updated one',libraryId:saved1.libraryId});
   s=await post('editor',{libraryId:saved2.libraryId});assert.equal(s.draft.name,'Saved two');
-  assert.equal(s.library.filter(e=>!['starter','two-stage','rover'].includes(e.id)).length,2);
+  assert.equal(s.library.filter(e=>!['starter','two-stage','rover','pathfinder3'].includes(e.id)).length,2);
   s=await post('flight',{});assert.equal(s.activeVehicleId,firstId);
   await post('time-scale',{scale:3},400);await post('control',{vehicleId:'missing'},400);
   for(const enabled of [null,'false',0,{},[]])await post('control',{vehicleId:firstId,enabled},400);
