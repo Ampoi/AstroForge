@@ -1,151 +1,61 @@
 #!/usr/bin/env python3
-"""PyLoN v1 UDP-only launch controller. Python 3 standard library only."""
+"""SDK launch controller; no automatic stage separation. Install ./python first."""
 import argparse
-import json
 import math
-import socket
 import time
-import uuid
 
-IDENTITY = ('runtimeInstance', 'runtimeGeneration', 'runtimeEpoch', 'runtimeVesselId', 'vesselId')
-
-
-class PylonClient:
-    def __init__(self, host='127.0.0.1', command_port=49011, telemetry_port=49010):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.bind(('127.0.0.1', telemetry_port))
-        self.socket.settimeout(.1)
-        self.endpoint = (host, command_port)
-        self.session = None
-        self.controller = 'astroforge-python-demo'
-        self.lease = uuid.uuid4().hex
-        self.sequence = 0
-        self.latest = {}
-        self.engines = []
-        self.last_heartbeat = 0
-        self.last_flight = 0
-        self.authority = None
-
-    def poll(self):
-        try:
-            raw, _ = self.socket.recvfrom(65535)
-        except socket.timeout:
-            return None
-        packet = json.loads(raw)
-        if packet.get('version') != 1:
-            return None
-        if packet.get('type') == 'pylon_session':
-            if not packet.get('available'):
-                return None
-            session = {key: packet[key] for key in IDENTITY}
-            if self.session and self.session != session:
-                raise RuntimeError('Flight session changed; restart this controller.')
-            self.session = session
-            self.last_heartbeat = time.monotonic()
-        elif not self.session or any(packet.get(k) != v for k, v in self.session.items()):
-            return None
-        if packet['type'] == 'pylon_flight_state':
-            self.latest = packet
-            self.last_flight = time.monotonic()
-        elif packet['type'] == 'pylon_actuator_manifest':
-            self.engines = [p['name'] for p in packet['actuators'] if p['actuatorType'] == 'engine']
-        elif packet['type'] == 'pylon_control_authority_state':
-            self.authority = packet
-        return packet
-
-    def send(self, kind, **fields):
-        if not self.session:
-            raise RuntimeError('No active flight session.')
-        self.sequence += 1
-        packet = dict(type=kind, version=1, **self.session,
-                      controllerId=self.controller, leaseId=self.lease,
-                      sequence=self.sequence, **fields)
-        self.socket.sendto(json.dumps(packet, allow_nan=False).encode(), self.endpoint)
-        return packet
-
-    def authority_command(self, action):
-        return self.send('pylon_control_authority_command', action=action, priority=10,
-                         leaseDurationSeconds=2.0, suppressSas=True)
-
-    def engine(self, name, thrust):
-        return self.send('pylon_actuator_command', actuatorType='engine', name=name,
-                         enabled=True, targetThrust=thrust, hasGimbalCommand=False,
-                         gimbalPitch=0.0, gimbalYaw=0.0, gimbalRoll=0.0, timeoutSeconds=.4)
-
-    def close(self):
-        if self.session:
-            for name in self.engines:
-                self.engine(name, 0)
-            self.authority_command('release')
-        self.socket.close()
+from astroforge import AstroForgeError, AttitudeCommand, Client, EngineCommand
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def guidance(flight, turn=0, warp=1):
+    tilt = math.radians(turn) * max(0, min(1, (flight['altitudeAgl'] - 3000) / 10000))
+    up = [u * math.cos(tilt) + e * math.sin(tilt)
+          for u, e in zip(flight['upBody'], flight['eastBody'])]
+    omega = flight['angularVelocityBody']
+    clip = lambda value: max(-1.0, min(1.0, value))
+    position_gain, rate_gain = min(2, 10 / max(1, warp)), min(1.8, 3 / max(1, warp))
+    return AttitudeCommand(pitch=clip(-position_gain * up[2] - rate_gain * omega[1]),
+                           yaw=clip(position_gain * up[1] - rate_gain * omega[2]),
+                           roll=clip(-rate_gain * omega[0]))
+
+
+def arguments(description=__doc__, duration=90):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--command-port', type=int, default=49011)
     parser.add_argument('--telemetry-port', type=int, default=49010)
-    parser.add_argument('--duration', type=float, default=90, help='Controller run time in seconds')
-    parser.add_argument('--turn', type=float, default=0, help='Optional tilt toward east, degrees after 3 km')
+    parser.add_argument('--duration', type=float, default=duration)
+    parser.add_argument('--turn', type=float, default=0)
     args = parser.parse_args()
     if not math.isfinite(args.duration) or not 0 < args.duration <= 3600 or not math.isfinite(args.turn) or not 0 <= args.turn <= 45:
         parser.error('duration must be in (0, 3600], turn in [0, 45]')
+    return args
+
+
+def main():
+    args = arguments()
+    print('テレメトリ受信後、制御権を取得すると自動点火します。Ctrl+Cで終了。', flush=True)
     try:
-        client = PylonClient(args.host, args.command_port, args.telemetry_port)
-    except OSError as error:
-        parser.exit(1, f'Cannot bind telemetry port: {error}. Stop any other client using this port.\n')
-    print('テレメトリを受信し、制御権を取得すると自動点火します。Ctrl+Cで停止。', flush=True)
-    try:
-        while not (client.session and client.engines and client.latest):
-            client.poll()
-        client.authority_command('acquire')
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            client.poll()
-            if client.authority and client.authority['state'] == 1 and client.authority['leaseId'] == client.lease:
-                break
-        else:
-            raise RuntimeError('Could not acquire control authority.')
-        print(f'Lease acquired. Igniting {", ".join(client.engines)}.', flush=True)
-        start = time.monotonic()
-        next_command = start
-        next_renewal = start + .5
-        next_print = start
-        clip = lambda v: max(-1.0, min(1.0, v))
-        while time.monotonic() - start < args.duration:
-            client.poll()
-            now = time.monotonic()
-            if now - client.last_heartbeat > 1 or now - client.last_flight > .75:
-                raise RuntimeError('Telemetry stale. Thrust is being stopped.')
-            if now >= next_renewal:
-                client.authority_command('renew')
-                next_renewal = now + .5
-            if now >= next_command:
-                f = client.latest
-                tilt = math.radians(args.turn) * max(0, min(1, (f['altitudeAgl'] - 3000) / 10000))
-                up = [u*math.cos(tilt) + e*math.sin(tilt) for u, e in zip(f['upBody'], f['eastBody'])]
-                omega = f['angularVelocityBody']
-                # Body frame: x forward, y left, z up; right-handed torque axes.
-                client.send('pylon_flight_control_command', pitch=clip(-2.0*up[2] - 1.8*omega[1]),
-                            yaw=clip(2.0*up[1] - 1.8*omega[2]), roll=clip(-1.8*omega[0]),
-                            landingGear=False, timeoutSeconds=.4)
-                for name in client.engines:
-                    client.engine(name, 60000)
-                next_command = now + .05
-            if now >= next_print:
-                f = client.latest
-                print(f'T+{f["universalTime"]:6.1f}s | h={f["altitudeAgl"]:9.1f}m | '
-                      f'vz={f["verticalSpeed"]:7.1f}m/s | q={f["dynamicPressure"]/1000:6.2f}kPa | '
-                      f'm={f["mass"]:7.1f}kg', flush=True)
-                next_print = now + 1
+        with Client(args.host, args.command_port, args.telemetry_port) as client:
+            state = client.wait_until_ready()
+            client.acquire_control()
+            deadline, next_print = time.monotonic() + args.duration, 0
+            while time.monotonic() < deadline:
+                session = client.latest('pylon_session')
+                client.send_batch([EngineCommand(e['name'], 60000) for e in state.engines if e['available']],
+                                  attitude=guidance(state.flight, args.turn, session.data.get('warpRate', 1)))
+                if time.monotonic() >= next_print:
+                    print(f'T+{state.simulation_time:.1f}s | h={state.flight["altitudeAgl"]:.1f}m', flush=True)
+                    next_print = time.monotonic() + 1
+                state = client.wait_for_snapshot(after=state)
     except KeyboardInterrupt:
-        print('\nController stopped.', flush=True)
-    except (RuntimeError, OSError) as error:
+        print('Controller interrupted; shutdown attempted.', flush=True)
+    except (AstroForgeError, ValueError) as error:
         print(f'Controller stopped: {error}', flush=True)
-    finally:
-        client.close()
-        print('Thrust off; lease released. The simulation continues in the browser.', flush=True)
+        return 1
+    print('Controller closed. The simulation continues; verify thrust/authority in telemetry.', flush=True)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
