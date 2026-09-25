@@ -15,6 +15,7 @@ import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} 
 import {mergeStaticMeshes} from './static-meshes.ts';
 import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
+import {makePylonPart, updatePylonJoint} from './pylon-models.ts';
 
 const materials: Record<string,THREE.MeshStandardMaterial>={};
 function material(color: THREE.ColorRepresentation,metal=.25,rough=.55){const key=String(color)+metal+rough;return materials[key]??=new THREE.MeshStandardMaterial({color,metalness:metal,roughness:rough});}
@@ -37,12 +38,10 @@ function makeSolarTexture(){
   const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
 }
 export function makePart(type: PartType, merge=true){
+  const imported=makePylonPart(type);
+  if(imported)return imported;
   const g=new THREE.Group();
-  if(type==='servo'||type==='linear'){
-    put(g,box(.5,PARTS[type].height,.5,PARTS[type].color));
-    if(type==='linear'){const shaft=put(g,cyl(.12,.12,1,'#a9b7bb',.8),0,PARTS[type].height/2);shaft.name='linear-extension';shaft.scale.y=.001;}
-    else{const hinge=put(g,cyl(.27,.27,.55,'#3e555e',.8));hinge.rotation.x=Math.PI/2;}
-  }else if(['lidar2d','lidar3d','camera','startracker','docking'].includes(type)){
+  if(type==='docking'){
     put(g,box(.22,.2,.2,PARTS[type].color),.11);
     const lens=put(g,cyl(.075,.075,.05,'#123c49',.5),.24);lens.rotation.z=Math.PI/2;
   }else if(type==='chassis'){
@@ -381,7 +380,7 @@ export class RocketScene{
       if(PARTS[part.type].radial&&part.type!=='wheel')rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),part.angle!+Math.PI));
       g.quaternion.copy(rotation);
     }
-    for(const joint of f.joints??[]){const shaft=this.groups.get(joint.id)?.getObjectByName('linear-extension');if(shaft){shaft.position.y=PARTS.linear.height/2+joint.position/2;shaft.scale.y=Math.max(.001,joint.position);}}
+    for(const joint of f.joints??[]){const part=this.groups.get(joint.id);if(part)updatePylonJoint(part,joint.position);}
     for(const w of f.wheels||[]){
       const g=this.groups.get(w.id);if(!g)continue;
       const suspension=g.getObjectByName('suspension'),steering=g.getObjectByName('steering'),tire=g.getObjectByName('tire'),spring=g.getObjectByName('spring');
@@ -409,7 +408,7 @@ export class RocketScene{
         const rotation=toModel.clone().multiply(new THREE.Quaternion(...pose.rotation)).multiply(toModel.clone().invert());
         if(PARTS[part.type].radial&&part.type!=='wheel')rotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),part.angle!+Math.PI));
         mesh.quaternion.copy(rotation);
-        const shaft=mesh.getObjectByName('linear-extension'),joint=d.joints?.find(j=>j.id===pose.id);if(shaft&&joint){shaft.position.y=PARTS.linear.height/2+joint.position/2;shaft.scale.y=Math.max(.001,joint.position);}
+        const joint=d.joints?.find(j=>j.id===pose.id);if(joint)updatePylonJoint(mesh,joint.position);
       }
       g.quaternion.copy(worldToScene).multiply(frame).multiply(new THREE.Quaternion(...d.quaternion)).multiply(modelToBody);
       const offset=earthFixed(d.position.map((v,i)=>v-f.position[i]),f.time),com=new THREE.Vector3(-d.com[1],d.com[0],d.com[2]).applyQuaternion(g.quaternion);

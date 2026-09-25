@@ -1,0 +1,82 @@
+{
+  "sourceCommit": "d62d948064d6665702d05957a669596244dca8da",
+  "readerSha256": "f13e4eff37db6e77aec24ebb1d8f9e06cc3001fdae5c213682f836ea3551544d",
+  "models": {
+    "lidar2d": {
+      "path": "Assets/PyLoN/Models/Lidar2D",
+      "sha256": {
+        "model.mu": "b8c7733687e4cd305443c58a05221333aa6e07b2e805d02da571456c2d7163e0",
+        "lidar_color_0.png": "63a82135f87f58c834455346e55de73e703df2b59027bd027ab4bb7ec6e1c593",
+        "lidar_color_1.png": "621a7d2ee50b32f4ce6761a00652cf539934fa9d4b43adb396c328c7cbd9bdc5",
+        "lidar_color_2.png": "10ea81d8481899a21e9a244a746c0b7093f6ddb547237ac45df42d1a24b7c04c",
+        "lidar_color_3.png": "f29fbcad615640017fb6e37e9c5fabe42775a5e9b00de0b5d9fbaaa8d3aa6501",
+        "lidar_color_4.png": "f6b7f3baf06598384ee8bbd604321e1fd2ca6446fbf4ce161f3cadc996fef2fd",
+        "lidar_color_5.png": "ed4022788fcb01dc83b06ebcec5d3b4491d23edc9cd579f51b431a8dcd6f4879",
+        "lidar_color_6.png": "7a98d3df4231f8fc8f5e28a5fd79a97f91736d5bcdad33391d023f5611972acb"
+      },
+      "triangles": 10420
+    },
+    "lidar3d": {
+      "path": "Assets/PyLoN/Models/Lidar3D",
+      "sha256": {
+        "model.mu": "d4490988812a524bb69d22f33fc0b5b5d4e397a088ba721dedc21bdd21ae1905",
+        "lidar_color_0.png": "63a82135f87f58c834455346e55de73e703df2b59027bd027ab4bb7ec6e1c593",
+        "lidar_color_1.png": "621a7d2ee50b32f4ce6761a00652cf539934fa9d4b43adb396c328c7cbd9bdc5",
+        "lidar_color_2.png": "10ea81d8481899a21e9a244a746c0b7093f6ddb547237ac45df42d1a24b7c04c",
+        "lidar_color_3.png": "f6b7f3baf06598384ee8bbd604321e1fd2ca6446fbf4ce161f3cadc996fef2fd",
+        "lidar_color_4.png": "f29fbcad615640017fb6e37e9c5fabe42775a5e9b00de0b5d9fbaaa8d3aa6501",
+        "lidar_color_5.png": "7a98d3df4231f8fc8f5e28a5fd79a97f91736d5bcdad33391d023f5611972acb",
+        "lidar_color_6.png": "ed4022788fcb01dc83b06ebcec5d3b4491d23edc9cd579f51b431a8dcd6f4879"
+      },
+      "triangles": 13700
+    },
+    "camera": {
+      "path": "Assets/PyLoN/Models/RgbCamera",
+      "sha256": {
+        "model.mu": "b624ca1f232221e3d289656283f38dea0cc953ea2d866a1297394f9417b3eccb",
+        "camera_color_0.png": "439cb2a8e0446223372fa57b46633498104a680d8c4ea696a387117373fa5584",
+        "camera_color_1.png": "d3cdfc33f38f3f67890c64f326cf5ce29284cfc0a8bf2b9415d0a4839ee128dc",
+        "camera_color_2.png": "001372020ad9b196094a5651269d5897d1dc770be5460f6a3f1716ef7d940f7e",
+        "camera_color_3.png": "79316bdb7a8b663edd9259cbdee79f4d22d8c882da8170342821a39108ecbaaf",
+        "camera_color_4.png": "6b4e41ca4dfdf2ef9ef596e1cc9c9db2b6b51a81cd967a276e7e06bffa91af06",
+        "camera_color_5.png": "57edd9ae2ab3f550ba817bfb0e2647b6d8ad05aac288e0b2960b30879d3dbea1"
+      },
+      "triangles": 7380
+    },
+    "startracker": {
+      "path": "Assets/PyLoN/Models/StarTracker",
+      "sha256": {
+        "model.mu": "580c58140154a393678ea4a5c3e1a59f19a986eff4ec6853b064082bafcd36cc",
+        "tracker_color_0.png": "439cb2a8e0446223372fa57b46633498104a680d8c4ea696a387117373fa5584",
+        "tracker_color_1.png": "3687bdc5543fb22a56db581c51b12cffa13b54fb015b2f59021d3e6146dc5975",
+        "tracker_color_2.png": "d3cdfc33f38f3f67890c64f326cf5ce29284cfc0a8bf2b9415d0a4839ee128dc",
+        "tracker_color_3.png": "6b4e41ca4dfdf2ef9ef596e1cc9c9db2b6b51a81cd967a276e7e06bffa91af06",
+        "tracker_color_4.png": "57edd9ae2ab3f550ba817bfb0e2647b6d8ad05aac288e0b2960b30879d3dbea1",
+        "tracker_color_5.png": "001372020ad9b196094a5651269d5897d1dc770be5460f6a3f1716ef7d940f7e"
+      },
+      "triangles": 10016
+    },
+    "servo": {
+      "path": "Assets/PyLoN/Models/RosServo",
+      "sha256": {
+        "model.mu": "6707c83827e3f133d77f2547822b9f979acbbeb1e6ee6bcb5666f68cda314fd1",
+        "servo_color_0.png": "2ecbb8fa6059df6b47ce063a68ca518a1e8074f481dcd97f38955f7ec274c767",
+        "servo_color_1.png": "a6d37f348fba140bb4b17684ba305d7c0bf55c2444a02febaef4763a81313ed3",
+        "servo_color_2.png": "8d2d2117b1f326cc09f482e4ce04575527d38c268a1d2eaaf9d0bed47fba9532",
+        "servo_color_3.png": "b1da2af328ff2874116869489502d22839bae475a75a83e86e67cea34200ed37"
+      },
+      "triangles": 15124
+    },
+    "linear": {
+      "path": "Assets/PyLoN/Models/RosLinearMotor",
+      "sha256": {
+        "model.mu": "a7d327c1632826f005c9362fb420142fb22ffdd18d04accfef769b813ea62e5c",
+        "linear_color_0.png": "2ecbb8fa6059df6b47ce063a68ca518a1e8074f481dcd97f38955f7ec274c767",
+        "linear_color_1.png": "a6d37f348fba140bb4b17684ba305d7c0bf55c2444a02febaef4763a81313ed3",
+        "linear_color_2.png": "b1da2af328ff2874116869489502d22839bae475a75a83e86e67cea34200ed37",
+        "linear_color_3.png": "8d2d2117b1f326cc09f482e4ce04575527d38c268a1d2eaaf9d0bed47fba9532"
+      },
+      "triangles": 18692
+    }
+  }
+}
