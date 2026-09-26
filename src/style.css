@@ -87,3 +87,6 @@ body:not(.flight-mode) .scene-top .eyebrow{color:#c4b389}
 body:not(.flight-mode) .scene-bottom{background:#0e191fe6;padding:10px 12px;left:12px;right:12px;bottom:12px;border:1px solid #52666b44;border-radius:4px;color:#a9bcc4}
 body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-color:#72878a66}
 @media(max-width:620px){body:not(.flight-mode) .scene-top{top:50px;padding:12px 10px}body:not(.flight-mode) .scene-bottom{font-size:8px;gap:8px;padding:8px}}
+
+#time-scale.dangerous-time-scale,#time-scale option.dangerous-time-scale{color:#ffad66}
+#time-scale option:not(.dangerous-time-scale){color:#dbe5e7}

@@ -34,13 +34,16 @@ export class SceneLighting{
   readonly sky=new THREE.HemisphereLight('#bddeef','#32464b',2.4);
   readonly sun=new THREE.DirectionalLight('#ffedda',4);
   readonly rim=new THREE.DirectionalLight('#6cb8e3',2.5);
+  // A visual fill keeps all sides of the vehicle readable in eclipse.
+  readonly fill=new THREE.AmbientLight('#c6d5ef',0);
   constructor(scene: THREE.Scene){
     this.sun.castShadow=true;this.sun.shadow.mapSize.set(2048,2048);
     Object.assign(this.sun.shadow.camera,{left:-32,right:32,top:40,bottom:-32,near:.5,far:220});
     this.sun.shadow.normalBias=.035;this.sun.shadow.bias=-.0001;
-    scene.add(this.sky,this.sun,this.sun.target,this.rim);this.editor();
+    scene.add(this.sky,this.sun,this.sun.target,this.rim,this.fill);this.editor();
   }
   editor(){
+    this.fill.intensity=0;
     this.sky.intensity=2.4;this.sky.position.set(0,1,0);
     this.sun.position.set(8,18,12);this.sun.target.position.set(0,0,0);
     this.sun.color.set('#ffedda');this.sun.intensity=4;this.rim.intensity=2.5;this.rim.position.set(-10,10,-10);
@@ -52,7 +55,8 @@ export class SceneLighting{
     this.sun.target.position.copy(center);this.sun.position.copy(center).addScaledVector(direction,100);
     this.sun.intensity=4*body.visibilityFrom(observer);
     this.sun.color.set('#fff4e3').lerp(new THREE.Color('#ff9c59'),air*(1-THREE.MathUtils.smoothstep(elevation,0,.35)));
-    this.sky.position.copy(observer).normalize();this.sky.intensity=.035+air*daylight*1.5;
+    this.sky.position.copy(observer).normalize();this.sky.intensity=.18+air*daylight*1.5;
+    this.fill.intensity=.22;
     this.rim.intensity=0;
   }
   dispose(){this.sun.shadow.dispose();}

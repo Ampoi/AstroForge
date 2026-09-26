@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FlightWorld} from '../server/world.ts';
+import {FlightWorld,TIME_SCALES} from '../server/world.ts';
 import {Simulation,EARTH,STEP} from '../server/physics.ts';
 import {starterCraft,twoStageCraft} from '../shared/craft.ts';
 import {add,sub,mul,norm,cross} from '../shared/math.ts';
@@ -12,6 +12,26 @@ test('time warp advances exact fixed steps and keeps wall-clock command expiry',
   assert.equal(world.advance(.1,1),120);assert.ok(Math.abs(world.time-1)<1e-9);assert.ok(s.last.thrust>0);
   world.advance(.1,4);assert.equal(s.last.thrust,0);assert.ok(Math.abs(world.time-2)<1e-9);
   assert.throws(()=>world.setTimeScale(11));assert.throws(()=>world.setTimeScale('10'));assert.throws(()=>world.setTimeScale(null));
+});
+test('all warp rates through 200 preserve fixed steps, resources and wall-clock expiry',()=>{
+  for(const scale of TIME_SCALES){
+    const world=new FlightWorld(starterCraft()),reference=new FlightWorld(starterCraft());
+    world.setTimeScale(scale);
+    for(const w of [world,reference])w.active.engines.engine_1={enabled:true,targetThrust:60000,expires:3};
+    for(const now of [1,4]){
+      assert.equal(world.advance(STEP,now),scale);
+      for(let i=0;i<scale;i++)reference.step(STEP,now);
+      assert.deepEqual(world.active.position,reference.active.position);
+      assert.equal(world.active.fuel,reference.active.fuel);
+    }
+    assert.ok(Math.abs(world.time-2*scale*STEP)<1e-9);
+    assert.equal(world.active.last.thrust,0);
+    world.setTimeScale(1);assert.equal(world.advance(STEP,5),1);
+  }
+  const world=new FlightWorld(starterCraft());world.setTimeScale(200);
+  for(const invalid of [201,1000,0,-1,NaN,Infinity,1.5,'200',null]){
+    assert.throws(()=>world.setTimeScale(invalid));assert.equal(world.timeScale,200);
+  }
 });
 test('new vessels share Earth time while earlier flights survive and pad occupancy is protected',()=>{
   const world=new FlightWorld(starterCraft()),first=world.active;first.status='flying';first.position=[EARTH.radius+1000,0,0];

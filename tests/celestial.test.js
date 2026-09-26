@@ -36,7 +36,10 @@ test('flight lighting follows the same solar bearing, fades in eclipse and resto
   assert.deepEqual(lighting.sun.target.position.toArray(),center.toArray());
   assert.ok(lighting.sun.intensity>3.9);close(lighting.rim.intensity,0);
   sun.update(Math.PI/EARTH_SPIN);lighting.flight(sun,observer,center);
-  close(lighting.sun.intensity,0);assert.ok(lighting.sky.intensity<.04);
-  lighting.editor();close(lighting.sun.intensity,4);close(lighting.rim.intensity,2.5);close(lighting.sky.intensity,2.4);
+  close(lighting.sun.intensity,0);assert.ok(lighting.sky.intensity>=.18);
+  assert.ok(lighting.fill.intensity>=.2,'vehicle surfaces stay readable without sunlight');
+  lighting.flight(sun,sun.position.clone().normalize().multiplyScalar(-1.1),center);
+  close(lighting.sun.intensity,0);assert.ok(lighting.fill.intensity>=.2,'orbital eclipse retains visual fill');
+  lighting.editor();close(lighting.sun.intensity,4);close(lighting.rim.intensity,2.5);close(lighting.sky.intensity,2.4);close(lighting.fill.intensity,0);
   lighting.dispose();
 });

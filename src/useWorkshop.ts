@@ -575,6 +575,17 @@ export function useWorkshop() {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (
+      event.key.toLowerCase() === "m" && flying.value &&
+      !event.repeat && !event.isComposing &&
+      !event.ctrlKey && !event.metaKey && !event.altKey &&
+      !target.closest("input,textarea,select,[contenteditable]:not([contenteditable='false'])") &&
+      !document.querySelector("dialog[open]")
+    ) {
+      event.preventDefault();
+      setView(!globe.value);
+      return;
+    }
+    if (
       event.code === "Tab" &&
       flying.value &&
       !event.shiftKey &&

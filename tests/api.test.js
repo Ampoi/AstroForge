@@ -54,6 +54,8 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   await post('time-scale',{scale:3},400);await post('control',{vehicleId:'missing'},400);
   for(const enabled of [null,'false',0,{},[]])await post('control',{vehicleId:firstId,enabled},400);
   await post('launch',{name:'Invalid',parts:[]},400);
+  for(const scale of [20,50,100,200]){s=await post('time-scale',{scale});assert.equal(s.timeScale,scale);}
+  await post('time-scale',{scale:201},400);
   s=await post('time-scale',{scale:10});assert.equal(s.timeScale,10);
   const identity=s.connection.session;
   const send=fields=>telemetry.send(Buffer.from(JSON.stringify({...identity,controllerId:'integration',leaseId:'test',sequence:1,...fields})),commandPort,'127.0.0.1');

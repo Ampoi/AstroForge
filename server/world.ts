@@ -4,7 +4,8 @@ import type {Craft} from '../shared/types.ts';
 import {Simulation,STEP,EARTH} from './physics.ts';
 import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp,qmul,qconj} from '../shared/math.ts';
 
-export const TIME_SCALES=[1,2,5,10];
+import {TIME_SCALES} from '../shared/time-scales.ts';
+export {TIME_SCALES} from '../shared/time-scales.ts';
 const alive=(body: Simulation)=>body.status!=='destroyed';
 const flatten=(body: Simulation): Simulation[]=>[body,...body.debris.flatMap(flatten)];
 
@@ -51,7 +52,7 @@ export class FlightWorld{
     if(retained.length>=12)throw Error('同時に配置できる機体は12機までです');
     body.createdAt=this.time;body.time=this.time;this.vehicles=[...retained,body];this.activeId=body.id;return body;
   }
-  setTimeScale(scale: unknown){if(typeof scale!=='number'||!TIME_SCALES.includes(scale))throw Error('倍率は1・2・5・10のいずれかです');this.timeScale=scale;}
+  setTimeScale(scale: unknown){if(typeof scale!=='number'||!TIME_SCALES.includes(scale))throw Error(`倍率は${TIME_SCALES.join('・')}のいずれかです`);this.timeScale=scale;}
   step(dt=STEP,now=this.time){
     const before=this.bodies,previous=new Map(before.map(v=>[v.id,{position:[...v.position],quaternion:[...v.quaternion]}]));
     for(const v of this.vehicles)v.step(dt,now);

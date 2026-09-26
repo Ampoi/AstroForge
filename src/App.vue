@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PartIcon from "./components/PartIcon.vue";
 import { PARTS, isRover } from "../shared/craft.ts";
+import { TIME_SCALES, isDangerousTimeScale } from "../shared/time-scales.ts";
 import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
@@ -321,12 +322,16 @@ function closeOnBackdrop(event: MouseEvent) {
         <div class="segmented">
           <button
             id="view-follow"
+            title="機体を追尾（Mでマップと切り替え）"
+            aria-keyshortcuts="M"
             :class="{ active: !globe }"
             @click="setView(false)"
           >
             機体を追尾</button
           ><button
             id="view-earth"
+            title="マップ（Mで追尾と切り替え）"
+            aria-keyshortcuts="M"
             :class="{ active: globe }"
             @click="setView(true)"
           >
@@ -338,11 +343,13 @@ function closeOnBackdrop(event: MouseEvent) {
           <select
             id="time-scale"
             :value="latest?.timeScale ?? 1"
+            :class="{ 'dangerous-time-scale': isDangerousTimeScale(latest?.timeScale ?? 1) }"
+            title="20倍以上は危険な高速モードです。観測間隔が粗くなり、操縦が不安定になる場合があります。"
             aria-label="シミュレーション速度"
             @change="setTimeScale"
           >
-            <option v-for="scale in [1, 2, 5, 10]" :key="scale" :value="scale">
-              ×{{ scale }}
+            <option v-for="scale in TIME_SCALES" :key="scale" :value="scale" :class="{ 'dangerous-time-scale': isDangerousTimeScale(scale) }">
+              ×{{ scale }}{{ isDangerousTimeScale(scale) ? ' ⚠' : '' }}
             </option>
           </select></label
         ><button
@@ -806,7 +813,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>03</span>
         <p>
           <strong>UDPでフライトを制御する</strong
-          >外部クライアントでテレメトリを受信し、制御権を取得して操縦指令を送ります。「マップ」で飛行履歴と予測軌道を確認できます。
+          >外部クライアントでテレメトリを受信し、制御権を取得して操縦指令を送ります。「マップ」で飛行履歴と予測軌道を確認できます。Mキーでマップと機体追尾を切り替えます。
         </p>
       </div>
     </div>

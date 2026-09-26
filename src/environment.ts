@@ -41,12 +41,13 @@ function earthTexture(){
   return {map:t,ready};
 }
 function starTexture(){
-  const c=document.createElement('canvas');c.width=2048;c.height=1024;const ctx=c.getContext('2d')!,random=seeded(411);
+  const c=document.createElement('canvas');c.width=4096;c.height=2048;const ctx=c.getContext('2d')!,random=seeded(411);
   ctx.fillStyle='#010208';ctx.fillRect(0,0,c.width,c.height);
   for(let i=0;i<5000;i++){
-    const x=random()*c.width,y=Math.acos(2*random()-1)/Math.PI*c.height,r=random(),size=r>.992?.7:r>.93?.5:.3;
-    ctx.fillStyle=`rgba(${random()>.3?'191,216,244':'242,217,184'},${.25+random()*.65})`;ctx.beginPath();ctx.arc(x,y,size,0,2*Math.PI);ctx.fill();
-    if(r>.997){ctx.fillStyle='#aecfff0a';ctx.beginPath();ctx.arc(x,y,2,0,2*Math.PI);ctx.fill();}
+    // Bright cores and a few larger stars remain legible against the black sky.
+    const x=random()*c.width,y=Math.acos(2*random()-1)/Math.PI*c.height,r=random(),size=r>.992?1.5:r>.93?1:.65;
+    ctx.fillStyle=`rgba(${random()>.3?'210,230,255':'255,231,200'},${.55+random()*.45})`;ctx.beginPath();ctx.arc(x,y,size,0,2*Math.PI);ctx.fill();
+    if(r>.997){ctx.fillStyle='#aecfff18';ctx.beginPath();ctx.arc(x,y,2.5,0,2*Math.PI);ctx.fill();}
   }
   return texture(c);
 }
@@ -54,7 +55,6 @@ function starTexture(){
 const fragmentShader=`
 precision highp float;
 uniform sampler2D earthMap;
-uniform sampler2D stars;
 uniform vec3 observer;
 uniform vec3 sunDirection;
 uniform vec3 sunPosition;
@@ -78,7 +78,9 @@ void main(){
   float hit=ground.x>0.?ground.x:-1.;
   float skyDay=smoothstep(-.10,.15,dot(normalize(observer),sunDirection));
   float starVisibility=1.-skyDay*exp(-max(0.,length(observer)-1.)/.008);
-  vec3 color=texture2D(stars,uv(d)).rgb*.85*starVisibility;
+  // Carry sky transmission in alpha; composite the stars at display resolution.
+  float starTransmission=hit>0.?0.:starVisibility;
+  vec3 color=vec3(0.);
   vec3 toSun=sunPosition-observer;
   vec3 solarBearing=normalize(toSun);
   float sunDot=dot(d,solarBearing);
@@ -103,12 +105,13 @@ void main(){
     float shadow=light>0.?cloudShadow(n,hit*pixelAngle):1.;
     float ocean=1.-smoothstep(.01,.12,surface.r-surface.b+.12);
     float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*shadow;
-    color=surface*(.012+max(0.,light)*1.05*shadow)+shine*vec3(1.,.85,.61)*day;
+    color=surface*(.045+max(0.,light)*1.05*shadow)+shine*vec3(1.,.85,.61)*day;
     if(globe>.5){vec4 clip=viewProjection*vec4(n*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
   }
   float cloudDistance;
   vec4 cloud=traceClouds(observer,d,hit,cloudDistance);
   color=color*cloud.a+cloud.rgb;
+  starTransmission*=cloud.a;
   // Six samples of exponential atmospheric density. Visual scattering approximation.
   vec2 air=sphere(observer,d,ATM);
   if(air.y>0.){
@@ -130,8 +133,9 @@ void main(){
       optical+=extinction;
     }
     color=color*exp(-optical)+scatter*vec3(.18,.36,.70);
+    starTransmission*=exp(-optical.y);
   }
-  gl_FragColor=vec4(color,1.);
+  gl_FragColor=vec4(color,starTransmission);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -158,21 +162,21 @@ export class EarthEnvironment{
     const material=new THREE.ShaderMaterial({uniforms:this.uniforms,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
     const copy=new THREE.ShaderMaterial({
-      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel},
+      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel},stars:this.uniforms.stars,
         observer:this.uniforms.observer,cameraRotation:this.uniforms.cameraRotation,aspect:this.uniforms.aspect,
         tanFov:this.uniforms.tanFov,viewProjection:this.uniforms.viewProjection,globe:this.uniforms.globe},
       depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth,
       vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
-      fragmentShader: `uniform sampler2D background; uniform vec2 texel; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D background; uniform sampler2D stars; uniform vec2 texel; varying vec2 vUv;
         uniform vec3 observer; uniform mat3 cameraRotation; uniform mat4 viewProjection;
         uniform float aspect; uniform float tanFov; uniform float globe;
         void main(){
+          vec2 screen=vUv*2.-1.;
+          vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
           // Reconstruct planet depth at display resolution so orbit tracks are
           // occluded correctly even though cloud colour uses a bounded buffer.
           gl_FragDepth=1.;
           if(globe>.5){
-            vec2 screen=vUv*2.-1.;
-            vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
             float b=dot(observer,d),h=b*b-dot(observer,observer)+1.;
             if(h>=0.){
               float t=-b-sqrt(h);
@@ -185,6 +189,9 @@ export class EarthEnvironment{
             gl_FragColor+=(texture2D(background,vUv+vec2(texel.x,0.))+texture2D(background,vUv-vec2(texel.x,0.))
               +texture2D(background,vUv+vec2(0.,texel.y))+texture2D(background,vUv-vec2(0.,texel.y)))*.125;
           }
+          vec2 starUv=vec2(atan(d.x,d.y)/6.28318530718+.5,asin(clamp(-d.z,-1.,1.))/3.14159265359+.5);
+          gl_FragColor.rgb+=texture2D(stars,starUv).rgb*1.4*gl_FragColor.a;
+          gl_FragColor.a=1.;
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
