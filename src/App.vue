@@ -104,7 +104,7 @@ function closeOnBackdrop(event: MouseEvent) {
 }
 </script>
 <template>
-  <div class="universal-clock" aria-label="GMT時刻">
+  <div class="universal-clock" aria-label="ゲーム内時刻（GMT）">
     <span>GMT</span
     ><time id="gmt-clock" :datetime="clock.toISOString()">{{
       clock.toISOString().slice(11, 19)

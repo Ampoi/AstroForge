@@ -97,7 +97,8 @@ export function useWorkshop() {
     name = ref(craft.value.name);
   const pendingUdp = ref(new Set<string>()),
     toastText = ref(""),
-    clock = ref(new Date()),
+    // GMT follows the world's elapsed game time, starting at 00:00:00.
+    clock = computed(() => new Date((latest.value?.simulationTime ?? 0) * 1000)),
     globe = ref(false),
     front = ref(false),
     grid = ref(true),
@@ -107,7 +108,7 @@ export function useWorkshop() {
     sceneError = ref(false);
   let scene: RocketScene | undefined,
     stream: EventSource | undefined,
-    clockTimer: ReturnType<typeof setInterval>,
+    fpsTimer: ReturnType<typeof setInterval>,
     toastTimer: ReturnType<typeof setTimeout>;
   let initial = true;
   const flying = computed(() => mode.value === "flight");
@@ -668,15 +669,14 @@ export function useWorkshop() {
         console.error(error);
       }
     };
-    clockTimer = setInterval(() => {
-      clock.value = new Date();
+    fpsTimer = setInterval(() => {
       renderFps.value = scene?.fps ?? 0;
     }, 1000);
     document.addEventListener("keydown", keydown);
   });
   onUnmounted(() => {
     stream?.close();
-    clearInterval(clockTimer);
+    clearInterval(fpsTimer);
     clearTimeout(toastTimer);
     document.removeEventListener("keydown", keydown);
     scene?.dispose();
