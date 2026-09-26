@@ -3,7 +3,8 @@ import type {LayoutPart} from '../shared/types.ts';
 import type {Packet} from './types.ts';
 import {createHash} from 'node:crypto';
 import {EARTH} from './physics-reference.ts';
-import {GROUND_ALTITUDE,sensorName} from '../shared/craft.ts';
+import {sensorName} from '../shared/craft.ts';
+import {rayTerrain,fixedPosition,terrainSample,terrainColor} from '../shared/terrain.ts';
 import {add,sub,mul,dot,norm,unit,rotate,qmul,axisAngle} from '../shared/math.ts';
 import {PartIdentity} from './part-identity.ts';
 
@@ -31,7 +32,11 @@ export function sceneRays(observer:Simulation,includeSelf=false,excludePart=''){
     return Array.from({length:count+1},(_,i)=>({center:add(b.position,rotate(b.quaternion,sub(add(p.position,rotate(p.rotation??[0,0,0,1],[-half+2*half*i/count,0,0])),b.props.com))),radius,color:p.def.color}));
   }));
   return (origin:number[],direction:number[],maxDistance=2000)=>{
-    let distance=raySphere(origin,direction,[0,0,0],EARTH.radius+GROUND_ALTITUDE),color='#617454';
+    let distance=rayTerrain(origin,direction,observer.time,maxDistance),color='#617454';
+    if(Number.isFinite(distance)){
+      const fixed=unit(fixedPosition(add(origin,mul(direction,distance)),observer.time));
+      color='#'+terrainColor(terrainSample(fixed)).map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+    }
     for(const shape of spheres){const d=raySphere(origin,direction,shape.center,shape.radius);if(d<distance){distance=d;color=shape.color;}}
     return distance<=maxDistance?{distance,color}:null;
   };

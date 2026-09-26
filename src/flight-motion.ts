@@ -1,4 +1,5 @@
 import {Quaternion} from 'three';
+import {fixedPosition} from '../shared/terrain.ts';
 import type {FlightSnapshot} from '../server/types.ts';
 
 function compatible(a: FlightSnapshot, b: FlightSnapshot) {
@@ -14,7 +15,13 @@ function blend(a: FlightSnapshot, b: FlightSnapshot, t: number): FlightSnapshot 
     const delta=Math.atan2(Math.sin(w.rotation-old.rotation),Math.cos(w.rotation-old.rotation));
     return {...w,compression:scalar(old.compression,w.compression),steering:scalar(old.steering,w.steering),rotation:old.rotation+delta*t};
   });
-  return {...b, wheels, time: scalar(a.time, b.time), position: vector(a.position, b.position),
+  const time=scalar(a.time,b.time);
+  // Interpolate resting craft in the rotating frame, rather than cutting a
+  // chord through the planet at high time warp.
+  const position=['pad','landed','crashed'].includes(b.status)
+    ?fixedPosition(vector(fixedPosition(a.position,a.time),fixedPosition(b.position,b.time)),-time)
+    :vector(a.position,b.position);
+  return {...b, wheels, time, position, altitudeAsl:scalar(a.altitudeAsl,b.altitudeAsl),
     quaternion: q.toArray(), com: vector(a.com, b.com), altitude: scalar(a.altitude, b.altitude)};
 }
 

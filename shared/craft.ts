@@ -7,7 +7,7 @@ export function sensorName(id:string){const value=id.replace(/_+/g,'_').replace(
 export const DIAMETER=1.25;
 export const G0=9.80665;
 // The surrounding ground is below the launch deck (deck altitude = 0).
-export const GROUND_ALTITUDE=-1.12;
+export {SITE_GROUND as GROUND_ALTITUDE} from './terrain.ts';
 export const WHEEL={radius:.45,extension:.55,travel:.4,spring:18000,damper:850,trackOffset:.32,motorForce:900,maxSpeed:12,grip:.85};
 const definitions={
   docking:{name:'ドッキングポート',label:'DP-30 Capture port',category:'structure',description:'低速で対向するポートを結合。UDPで切り離し・ポートカメラを操作。',mass:18,height:.3,width:.3,depth:.3,radial:true,color:'#bac9ce'},

@@ -23,6 +23,7 @@ function view(name){
   if(name==='Eclipse')env.position.copy(env.sun.position).normalize().multiplyScalar(-1-altitude/EARTH_RADIUS);
   env.uniforms.sunDirection.value.copy(env.sun.position).normalize();
   scene.ground.position.set(0,-altitude,0);scene.ground.visible=altitude<50000;
+  scene.terrain.update(env.position.clone().multiplyScalar(EARTH_RADIUS),new THREE.Vector3());scene.terrain.visible=altitude<150000;
   scene.scene.fog.density=.00012*Math.exp(-altitude/8000);
   if(name==='Orbit'){
     const old=env.trail.geometry;

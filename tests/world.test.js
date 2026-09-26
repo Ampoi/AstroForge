@@ -1,3 +1,4 @@
+import {surfaceHeight} from '../shared/terrain.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {FlightWorld,TIME_SCALES} from '../server/world.ts';
@@ -55,7 +56,7 @@ test('extreme ground impact removes the vehicle and clears its engine',()=>{
   assert.equal(s.status,'destroyed');assert.equal(s.debris.length,0);assert.equal(s.last.thrust,0);assert.deepEqual(s.engines,{});
 });
 test('gentle upright ground contact remains landable',()=>{
-  const s=flying(starterCraft(),3.5);s.velocity=add(s.velocity,[-1,0,0]);
+  const s=flying(starterCraft(),3.5);s.position[0]+=surfaceHeight(s.position,s.time);s.velocity=add(s.velocity,[-1,0,0]);
   for(let i=0;i<60&&s.status==='flying';i++)s.step();assert.equal(s.status,'landed');assert.equal(s.debris.length,0);
 });
 test('head-on vehicle collision breaks both craft, including high speed tunneling',()=>{

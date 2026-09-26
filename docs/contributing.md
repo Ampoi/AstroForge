@@ -69,7 +69,7 @@ ABI・メモリ境界・物理モデルの担当範囲は[Zig物理カーネル]
 | フォルダ | 内容・主なファイル |
 | --- | --- |
 | `src/` | `App.vue`がVueによる組み立て・画面操作・保存、`style.css`がTailwind CSSとスタイル。`scene.ts`が機体モデルとカメラ、`environment.ts`が地球・軌道表示、`launch-site.ts`が発射場 |
-| `public/` | faviconや`assets/land.json`（海岸線）など、そのまま配信する静的素材 |
+| `public/` | faviconなど、そのまま配信する静的素材（地形は`shared/terrain.ts`で生成） |
 | `server/` | Node.jsサーバー。`index.ts`がHTTP/SSE・保存・物理ループ、`vehicle-udp.ts`が機体ごとのソケット、`protocol.ts`がUDP入力検証・制御権・テレメトリ、`observations.ts`がIMU・電力・snapshot |
 | `server/` の物理処理 | `physics.ts`が推力配分・資源・機体の状態・分離、`world.ts`が複数機体・衝突・時間倍率、`physics-kernel.ts`がWasm呼び出し、`physics-reference.ts`が比較用JS物理カーネル |
 | `native/` | `physics.zig`に倍精度RK4積分、重力、大気、空力の計算 |

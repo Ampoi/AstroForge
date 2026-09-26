@@ -1,0 +1,27 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>AstroForge terrain / touchdown checks</title>
+<style>body{margin:0;background:#07101a;color:#e2eced;font:14px system-ui}nav{display:flex;align-items:center;gap:12px;padding:12px 20px;height:34px}button{padding:6px 12px}#scene{height:calc(100vh - 58px)}#status{margin-left:auto}</style>
+<nav><strong>Terrain / touchdown</strong><button>Launch</button><button>Landing</button><button>Hills</button><button>Globe</button><button>North pole</button><span id="status">Generating seeded planet…</span></nav><div id="scene"></div>
+<script type="module">
+import * as THREE from 'three';
+import {RocketScene} from '../src/scene.ts';
+import {starterCraft,craftStats,massProperties} from '../shared/craft.ts';
+import {terrainDirection,surfaceHeight,PLANET_RADIUS} from '../shared/terrain.ts';
+const scene=new RocketScene(document.querySelector('#scene'),()=>{},()=>{}),craft=starterCraft(),props=massProperties(craft),stats=craftStats(craft);
+scene.setCraft(craft);await scene.environment.ready;
+let current='Landing';
+function view(name){
+  current=name;scene.setMode('flight');
+  const lon=name==='Hills'?9000/PLANET_RADIUS:name==='Landing'?500/PLANET_RADIUS:0,lat=name==='North pole'?Math.PI/2:0,up=terrainDirection(lon,lat),h=surfaceHeight(up.map(v=>v*PLANET_RADIUS),0);
+  const quaternion=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1,0,0),new THREE.Vector3(...up));
+  const position=up.map(v=>v*(PLANET_RADIUS+(name==='Launch'?0:h)+props.com[0]));
+  const f={id:'terrain-check',craft,time:0,status:name==='Launch'?'pad':'landed',position,velocity:[0,0,0],quaternion:quaternion.toArray(),omega:[0,0,0],com:props.com,stats,
+    altitude:0,altitudeAsl:h+props.com[0],engines:[],debris:[],joints:[],wheels:[],partPoses:[]};
+  scene.updateFlight(f,[]);scene.renderFlight(f,performance.now());scene.fit();
+  if(name==='Globe'||name==='North pole'){scene.setView(true);scene.controls.target.copy(scene.environment.position).multiplyScalar(10.002);scene.camera.position.copy(scene.controls.target).add(new THREE.Vector3(18,24,-12).normalize().multiplyScalar(55));scene.controls.update();}
+  else if(name==='Hills'){scene.controls.target.set(0,4,0);scene.camera.position.set(90,40,110);scene.controls.update();}
+}
+for(const button of document.querySelectorAll('button'))button.onclick=()=>view(button.textContent);
+view(current);
+setInterval(()=>{const programs=scene.renderer.info.programs||[],valid=programs.length&&programs.every(p=>p.diagnostics?.runnable!==false);document.querySelector('#status').textContent=`${current} · ${scene.fps} fps · shaders ${valid?'OK':'FAILED'} · seed 73129`;},1000);
+window.addEventListener('pagehide',()=>scene.dispose());
+</script></html>

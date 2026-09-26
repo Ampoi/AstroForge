@@ -6,6 +6,7 @@ import {isEngine,PARTS,G0,craftStats,massProperties,stages,splitCraft,isRover,GR
 
 import {EARTH,STEP,atmosphere,gravity,orbitalElements} from './physics-reference.ts';
 import {roverForces,WHEEL} from './rover.ts';
+import {surfaceHeight,TERRAIN_MAX_HEIGHT} from '../shared/terrain.ts';
 import {PartIdentity} from './part-identity.ts';
 import {advanceJoints,internalMomentum} from './motors.ts';
 import type {JointState,MotorInput} from './motors.ts';
@@ -247,12 +248,14 @@ export class Simulation{
           return -dot(sub(p.position,this.props.com),upBody)+half.reduce((sum,v,i)=>sum+v*Math.abs(localUp[i]),0);
         }));
       }
-      const lowest=norm(this.position)-EARTH.radius-contactExtent;
+      const groundHeight=norm(this.position)-EARTH.radius-contactExtent<=TERRAIN_MAX_HEIGHT?surfaceHeight(this.position,this.time+dt):0;
+      const lowest=norm(this.position)-EARTH.radius-groundHeight-contactExtent;
       if(!this.rover&&lowest<=0){
         const impact=norm(sub(this.velocity,cross([0,0,EARTH.spin],this.position)));
         if(impact>=8){this.time+=dt;this.impactDamage(impact);return;}
         this.status=impact<4&&dot(up,nose)>.95?'landed':'crashed';this.clearCommands();
-        this.position=mul(up,EARTH.radius+Math.max(.625,contactExtent));this.velocity=[0,0,0];this.omega=[0,0,0];
+        this.position=mul(up,EARTH.radius+groundHeight+contactExtent);
+        this.velocity=cross([0,0,EARTH.spin],this.position);this.omega=rotate(qconj(this.quaternion),[0,0,EARTH.spin]);
         this.event(`${this.status==='landed'?'着地':'地表に衝突'} — ${impact.toFixed(1)} m/s`);
       }
     }

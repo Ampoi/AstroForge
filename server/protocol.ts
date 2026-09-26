@@ -1,3 +1,4 @@
+import {surfaceClearance} from '../shared/terrain.ts';
 import type {Simulation} from './physics.ts';
 import type {WireCommand, Packet} from './types.ts';
 import {errorMessage} from '../shared/errors.ts';
@@ -186,7 +187,7 @@ export class PylonProtocol{
     const av=sub(this.sim.omega,rotate(inverse,spin));
     const fixed=rotate(spinQ,s.position);
     packets.push(this.packet('pylon_flight_state',{
-      observationSequence:this.observation,bodyName:'Earth',altitudeAsl:s.altitudeAsl,altitudeAgl:s.altitudeAsl,
+      observationSequence:this.observation,bodyName:'Earth',altitudeAsl:s.altitudeAsl,altitudeAgl:surfaceClearance(s.position,s.time),
       latitude:Math.asin(s.position[2]/norm(s.position))*180/Math.PI,longitude:Math.atan2(fixed[1],fixed[0])*180/Math.PI,
       mass:s.mass,liquidFuel:s.fuel*.45/5,oxidizer:s.fuel*.55/5,electricCharge:s.charge,
       gravity:s.gravity,bodyRadius:EARTH.radius,gravitationalParameter:EARTH.mu,atmosphereDepth:EARTH.atmosphereDepth,

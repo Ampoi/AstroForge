@@ -5,7 +5,8 @@ import {EARTH} from './physics-reference.ts';
 
 // Body x: forward, y: left, z: up. Raycast wheels have massless suspension
 // links; their unsprung mass is included in the vehicle rigid-body inertia.
-import {WHEEL,GROUND_ALTITUDE} from '../shared/craft.ts';
+import {WHEEL} from '../shared/craft.ts';
+import {surfaceClearance,surfaceNormal} from '../shared/terrain.ts';
 export {WHEEL} from '../shared/craft.ts';
 export function roverForces(sim: Simulation,dt: number,now: number){
   const q=sim.quaternion,inverse=qconj(q),props=sim.props;
@@ -14,9 +15,9 @@ export function roverForces(sim: Simulation,dt: number,now: number){
   const wheels=props.parts.filter(p=>p.type==='wheel');
   const apply=(point: number[],f: number[])=>{force=add(force,f);torque=add(torque,cross(sub(point,props.com),f));};
   const sample=(point: number[])=>{
-    const r=sub(point,props.com),world=add(sim.position,rotate(q,r)),up=unit(world);
+    const r=sub(point,props.com),world=add(sim.position,rotate(q,r));
     const velocity=sub(add(sim.velocity,rotate(q,cross(sim.omega,r))),cross([0,0,EARTH.spin],world));
-    return {height:norm(world)-EARTH.radius-GROUND_ALTITUDE,normal:rotate(inverse,up),velocity:rotate(inverse,velocity)};
+    return {height:surfaceClearance(world,sim.time),normal:rotate(inverse,surfaceNormal(world,sim.time)),velocity:rotate(inverse,velocity)};
   };
   for(const p of wheels){
     const c=sim.wheels[p.id],active=!sim.passive&&sim.charge>0&&!!c&&c.expires>now;

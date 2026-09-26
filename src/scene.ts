@@ -12,6 +12,8 @@ import {makeFaceGuide} from './attachment-guides.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {SceneLighting} from './celestial.ts';
 import {makeLaunchSite} from './launch-site.ts';
+import {LocalTerrain} from './terrain.ts';
+import {surfaceClearance} from '../shared/terrain.ts';
 import {VabEnvironment, setVabLighting} from './vab.ts';
 import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} from './exhaust.ts';
 import {mergeStaticMeshes} from './static-meshes.ts';
@@ -116,6 +118,7 @@ export function makePart(type: PartType, merge=true){
 export function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof THREE.Mesh))return;o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(!Object.values(materials).includes(m))m.dispose();});}
 
 export class RocketScene{
+  readonly terrain=new LocalTerrain();
   element: HTMLElement; onSelect: (id:string | null)=>void;
   onPlace: (type:PartType, placement:AssemblyPlacement | null, movingId?:string)=>void;
   onPlacement: (placement:AssemblyPlacement | null | false | undefined, draft?:Assembly)=>void;
@@ -138,7 +141,7 @@ export class RocketScene{
   constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{}){
     this.element=element;this.onSelect=onSelect;this.onPlace=onPlace;this.mode='editor';this.selected=null;this.placing=null;this.groups=new Map();this.showMarkers=false;
     this.scene=new THREE.Scene();this.scene.fog=new THREE.FogExp2('#172a35',.013);
-    this.camera=new THREE.PerspectiveCamera(34,1,.05,100000);this.camera.position.set(12,8,15);
+    this.camera=new THREE.PerspectiveCamera(34,1,.05,1000000);this.camera.position.set(12,8,15);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.setClearColor(0,0);
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.3;element.appendChild(this.renderer.domElement);
     this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.globe=false;
@@ -152,7 +155,7 @@ export class RocketScene{
     this.grid=new THREE.GridHelper(44,44,'#78908f','#52666b');this.grid.position.y=.02;this.grid.material.transparent=true;this.grid.material.opacity=.15;this.ground.add(this.grid);
     setVabLighting(this.scene,true);
     this.editorGround=this.ground;this.launchSite=makeLaunchSite();this.launchSite.visible=false;this.scene.add(this.launchSite);
-    this.rocket=new THREE.Group();this.scene.add(this.rocket);this.scene.add(this.exhaust.mesh);
+    this.scene.add(this.terrain);this.rocket=new THREE.Group();this.scene.add(this.rocket);this.scene.add(this.exhaust.mesh);
     this.markers=new THREE.Group();this.scene.add(this.markers);
     this.snapGroup=new THREE.Group();this.scene.add(this.snapGroup);
     this.preview=new THREE.Group();this.scene.add(this.preview);this.onPlacement=onPlacement;
@@ -322,7 +325,7 @@ export class RocketScene{
     this.flightMotion.clear();
     for(const g of this.debrisGroups.values()){this.scene.remove(g);disposeGroup(g);}this.debrisGroups.clear();
     if(mode==='editor')this.lighting.editor();
-    this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=null;
+    this.terrain.visible=mode==='flight';this.currentFlight=null;this.mode=mode;this.cancelPlacement();this.select(null);this.markers.visible=mode==='editor'&&this.showMarkers;this.ground.position.set(0,0,0);this.rocket.position.set(0,0,0);this.rocket.quaternion.identity();this.exhaust.clear();this.exhaustTime=null;this.exhaustVessel=null;
     for(const g of this.groups.values())g.getObjectByName('engine-gimbal')?.quaternion.identity();
     this.rocket.visible=true;(this.scene.fog as THREE.FogExp2).density=.013;this.element.parentElement!.style.background='';
     setVabLighting(this.scene,mode==='editor');
@@ -433,6 +436,8 @@ export class RocketScene{
       g.position.copy(offset).add(new THREE.Vector3(0,this.stats.height/2,0)).sub(com);g.visible=offset.length()<25000;
     }
     this.ground.position.copy(earthFixed(f.position,f.time)).negate().add(new THREE.Vector3(0,EARTH_RADIUS+this.stats.height/2,0));
+    this.terrain.visible=f.altitudeAsl<150000;
+    if(this.terrain.visible&&!this.globe)this.terrain.update(earthFixed(f.position,f.time),new THREE.Vector3(0,this.stats.height/2,0));
     this.ground.visible=f.altitude<50000;(this.scene.fog as THREE.FogExp2).density=.00012*Math.exp(-f.altitude/8000);
     this.updateExhaust(f,worldToScene.clone().multiply(frame));
     this.rocket.visible=f.status!=='destroyed';
@@ -461,12 +466,12 @@ export class RocketScene{
     }
     this.exhaust.mesh.quaternion.copy(inertialToScene);this.exhaust.mesh.position.copy(center);
     this.exhaust.update(dt,{origin,airVelocity:new THREE.Vector3(-7.292115e-5*origin.y,7.292115e-5*origin.x,0),
-      up,groundHeight:f.altitudeAsl,density:Math.exp(-Math.max(0,f.altitudeAsl)/8500),emitters,obstacles},this.camera);
+      up,groundHeight:surfaceClearance(f.position,f.time),density:Math.exp(-Math.max(0,f.altitudeAsl)/8500),emitters,obstacles},this.camera);
   }
   dispose(){
     this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();
     this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();
-    this.lighting.dispose();this.renderer.dispose();this.renderer.domElement.remove();
+    this.terrain.material.map?.dispose();this.lighting.dispose();this.renderer.dispose();this.renderer.domElement.remove();
   }
   setFrameRate(rate: FrameRate){this.frameClock.setRate(rate);}
   get fps(){return this.frameClock.fps;}
