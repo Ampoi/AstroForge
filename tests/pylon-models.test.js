@@ -31,10 +31,16 @@ test('all six PyLoN visuals have valid indexed geometry, outward normals and bou
     assert.ok(triangles>7000);assert.ok(meshes<=12, `${type}: ${meshes} draw calls`);
     assert.equal(aligned,nondegenerate, `${type}: incorrect winding/normals`);
     const size=bounds(part).getSize(new Vector3());
-    assert.ok(size.toArray().every(n=>Number.isFinite(n)&&n>0&&n<1));
+    assert.ok(size.toArray().every(n=>Number.isFinite(n)&&n>0&&n<(type==='linear'?3:1)));
     if(PARTS[type].radial)near(bounds(part).min.x,0);
   }
   assert.equal(makePart('docking').userData.pylonModel,undefined);
+});
+test('linear motor preserves native proportions at the 0.4 m flange diameter',()=>{
+  const part=makePart('linear'),model=part.children[0],size=bounds(part).getSize(new Vector3());
+  near(model.scale.x,model.scale.y);near(model.scale.y,model.scale.z);
+  near(size.x,.4);near(size.z,.4);near(size.y,.4*1.6049312/.3125);
+  near(PARTS.linear.height,size.y);
 });
 test('linear visual follows the existing stack interfaces throughout its full 2 m travel',()=>{
   const part=makePart('linear');

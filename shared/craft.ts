@@ -1,7 +1,7 @@
 import type {Craft, Part, PartType, PartDefinition, LayoutPart} from './types.ts';
 import {record, errorMessage} from './errors.ts';
 import {add,mul,sub,dot,inverse3,rotate} from './math.ts';
-import {SLIM_DIAMETER} from './part-dimensions.ts';
+import {SLIM_DIAMETER,LINEAR_HEIGHT} from './part-dimensions.ts';
 
 export function sensorName(id:string){const value=id.replace(/_+/g,'_').replace(/^_+|_+$/g,'').toLowerCase()||'sensor';return /^\d/.test(value)?'_'+value:value;}
 export const DIAMETER=1.25;
@@ -12,7 +12,7 @@ export const WHEEL={radius:.45,extension:.55,travel:.4,spring:18000,damper:850,t
 const definitions={
   docking:{name:'ドッキングポート',label:'DP-30 Capture port',category:'structure',description:'低速で対向するポートを結合。UDPで切り離し・ポートカメラを操作。',mass:18,height:.3,width:.3,depth:.3,radial:true,color:'#bac9ce'},
   servo:{name:'回転サーボ',label:'RJ-180 Stack hinge',category:'robotics',description:'機首側のパーツを機体Z軸周り±90°に回転。最大180 N·m。',mass:25,height:.4,width:.5,depth:.5,color:'#d9a651'},
-  linear:{name:'直動モーター',label:'LJ-2 Telescopic joint',category:'robotics',description:'機首側のパーツを軸方向へ0〜2 m伸縮。最大1500 N。',mass:30,height:.5,width:.5,depth:.5,color:'#91a5b0'},
+  linear:{name:'直動モーター',label:'LJ-2 Telescopic joint',category:'robotics',description:'機首側のパーツを軸方向へ0〜2 m伸縮。最大1500 N。',mass:30,height:LINEAR_HEIGHT,width:SLIM_DIAMETER,depth:SLIM_DIAMETER,color:'#91a5b0'},
   lidar2d:{name:'2D LiDAR',label:'LS-360 Planar scanner',category:'sensors',description:'360方向・360°の距離走査。公開UDPでLaserScan互換データを配信。',mass:3,height:.2,width:.2,depth:.2,radial:true,color:'#52cfc0'},
   lidar3d:{name:'3D LiDAR',label:'LS-3D Hemisphere scanner',category:'sensors',description:'512方向の半球距離走査。点群の復元に対応。',mass:5,height:.25,width:.25,depth:.25,radial:true,color:'#56aacd'},
   camera:{name:'RGBカメラ',label:'CAM-64 Optical sensor',category:'sensors',description:'64×48 RGB画像・垂直視野60°。5 HzでUDP配信。',mass:2,height:.2,width:.2,depth:.2,radial:true,color:'#7b94b4'},

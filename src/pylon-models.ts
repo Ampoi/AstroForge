@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type {PartType} from '../shared/types.ts';
 import {PARTS} from '../shared/craft.ts';
-import {SLIM_DIAMETER} from '../shared/part-dimensions.ts';
+import {LINEAR_MODEL_SCALE} from '../shared/part-dimensions.ts';
 import lidar2d from './assets/pylon/lidar2d.json';
 import lidar3d from './assets/pylon/lidar3d.json';
 import camera from './assets/pylon/camera.json';
@@ -44,12 +44,8 @@ export function makePylonPart(type: PartType): THREE.Group | null {
     group.add(mesh);
   }
   if (type === 'linear') {
-    // Keep both existing stack nodes. Moving stages stretch to cover the full
-    // AstroForge travel (2 m), which differs from PyLoN's native 1.6 m travel.
-    model.scale.setScalar(PARTS.linear.height / 1.6049312);
-    // The source flange is 0.3125 m across; retain stack height/travel while
-    // fitting both end flanges to the nominal small attachment standard.
-    model.scale.x=model.scale.z=SLIM_DIAMETER/.3125;
+    // Preserve the native model proportions at the nominal flange diameter.
+    model.scale.setScalar(LINEAR_MODEL_SCALE);
     model.position.y = -PARTS.linear.height / 2;
   } else if (type === 'servo') {
     // PyLoN's axial rotor becomes the existing Z-axis hinge in this simulator.
@@ -80,7 +76,7 @@ export function updatePylonJoint(part: THREE.Object3D, position: number) {
   if (rotor) rotor.rotation.y = position;
   const sleeve = part.getObjectByName('LinearSleeve'), rod = part.getObjectByName('LinearRod');
   if (sleeve && rod) {
-    const extension = Math.max(0, position), scale = PARTS.linear.height / 1.6049312;
+    const extension = Math.max(0, position), scale = LINEAR_MODEL_SCALE;
     sleeve.scale.y = 1 + extension / (2 * 1.533 * scale);
     rod.scale.y = 1 + extension / PARTS.linear.height;
   }
