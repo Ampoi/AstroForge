@@ -69,8 +69,6 @@ const {
   reset,
   focusVehicle,
   toggleUdp,
-  demoCommand,
-  copyDemo,
   setTimeScale,
   setView,
   fit,
@@ -291,13 +289,7 @@ function closeOnBackdrop(event: MouseEvent) {
                         >受信 :{{ vehicle.udp.commandPort }} · 送信 :{{
                           vehicle.udp.telemetryPort
                         }}</code
-                      ><a v-if="vehicle.wheels.length" href="/docs/rover" target="_blank" rel="noreferrer">車輪の操作方法 ↗</a><button v-else
-                        :data-copy-udp="vehicle.id"
-                        title="この機体のデモ起動コマンドをコピー"
-                        @click="copyDemo(vehicle.udp)"
-                      >
-                        接続コマンド ↗
-                      </button></template
+                      ><a v-if="vehicle.wheels.length" href="/docs/rover" target="_blank" rel="noreferrer">車輪の操作方法 ↗</a><a v-else href="/docs/protocol" target="_blank" rel="noreferrer">UDP接続方法 ↗</a></template
                     ><small v-else>{{
                       vehicle.controllable
                         ? "ONにすると専用ポートを割り当てます"
@@ -681,13 +673,6 @@ function closeOnBackdrop(event: MouseEvent) {
         <div id="validation" class="validation" :class="{ warning }">
           {{ validation }}
         </div>
-        <button
-          id="two-stage-button"
-          class="two-stage-button"
-          @click="reset('two-stage')"
-        >
-          ⊟ 2段機体で分離を試す
-        </button>
         <div class="editor-actions">
           <div class="secondary-actions">
             <button
@@ -716,11 +701,8 @@ function closeOnBackdrop(event: MouseEvent) {
           </button>
           <p v-if="isRover(active)">車輪名を指定して駆動・操舵・制動を操作します。<a href="/docs/rover" target="_blank" rel="noreferrer">ローバーの操作方法 ↗</a></p>
           <p v-else>
-            別ターミナルで
-            <code data-demo-command>{{
-              demoCommand() ?? "機体一覧でUDPをONにしてください"
-            }}</code>
-            を実行して点火
+            公開UDPで外部クライアントから機体を制御します。
+            <a href="/docs/protocol" target="_blank" rel="noreferrer">UDP接続方法 ↗</a>
           </p>
         </div>
       </section>
@@ -824,21 +806,14 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>03</span>
         <p>
           <strong>UDPでフライトを制御する</strong
-          >次のコマンドを別ターミナルで実行すると点火・姿勢制御を行います。2段機体は燃料切れで下段を切り離し、上段を点火します。「マップ」で飛行履歴と予測軌道を確認できます。
+          >外部クライアントでテレメトリを受信し、制御権を取得して操縦指令を送ります。「マップ」で飛行履歴と予測軌道を確認できます。
         </p>
       </div>
     </div>
     <p v-if="focused?.wheels.length"><a href="/docs/rover" target="_blank" rel="noreferrer">ローバーのUDP操作手順 ↗</a> — 車輪名ごとにモーター・操舵・ブレーキを指定します。</p>
-    <div v-else class="command-box">
-      <code data-demo-command>{{
-        demoCommand() ?? "機体一覧でUDPをONにしてください"
-      }}</code
-      ><button id="copy-demo" :disabled="!udp?.enabled" @click="copyDemo()">
-        コピー
-      </button>
-    </div>
-    <p class="help-note">
-      独立したUDPクライアントです。テレメトリ受信・操縦判断・ログはデモ内で完結します。Ctrl+Cで推力を切り、制御権を返します。
+    <p v-else class="help-note">
+      <a href="/docs/protocol" target="_blank" rel="noreferrer">UDP接続と通信の流れ ↗</a>
+      — 接続先ポート・制御権・操縦指令の仕様を確認できます。
     </p>
     <div class="help-spec">
       <span>JSON / UTF-8</span

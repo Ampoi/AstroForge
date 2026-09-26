@@ -36,7 +36,7 @@ import type {
   Mode,
   PartType,
 } from "../shared/types.ts";
-import type { AppState, ApiRoutes, UdpState } from "../shared/api.ts";
+import type { AppState, ApiRoutes } from "../shared/api.ts";
 import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
 import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
@@ -526,25 +526,6 @@ export function useWorkshop() {
       pendingUdp.value.delete(id);
     }
   }
-  function demoCommand(value = udp.value) {
-    if (!value?.enabled) return null;
-    const args = [];
-    if (value.commandPort !== 49011)
-      args.push(`--command-port ${value.commandPort}`);
-    if (value.telemetryPort !== 49010)
-      args.push(`--telemetry-port ${value.telemetryPort}`);
-    return "npm run demo" + (args.length ? " -- " + args.join(" ") : "");
-  }
-  async function copyDemo(value?: UdpState) {
-    const command = demoCommand(value);
-    if (!command) return;
-    try {
-      await navigator.clipboard.writeText(command);
-      toast("この機体のデモ起動コマンドをコピーしました");
-    } catch {
-      toast(command);
-    }
-  }
   async function setTimeScale(event: Event) {
     const target = event.target as HTMLSelectElement;
     try {
@@ -748,8 +729,6 @@ export function useWorkshop() {
     reset,
     focusVehicle,
     toggleUdp,
-    demoCommand,
-    copyDemo,
     setTimeScale,
     setView,
     fit,
