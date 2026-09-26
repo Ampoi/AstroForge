@@ -56,15 +56,16 @@ test('Wasm exhaust bounds inputs and owns independent particle arenas',()=>{
   const raw=new WebAssembly.Instance(module).exports;
   assert.equal(raw.step(81,0,2400),0);assert.equal(raw.step(0,81,2400),0);
 });
-test('render sorting preserves simulation order and uploads only live particles for both backends',()=>{
+test('smoke thinning and sorting preserve simulation order and upload only the visible range for both backends',()=>{
   for(const flow of [new ExhaustFlow(),new WasmExhaustFlow(module)]){
     const effect=new ExhaustEffect();effect.flow=flow;const f=frame(),camera=new PerspectiveCamera();
     flow.step(.1,f);const saved=flow.particles.map(p=>p.position.toArray());
     effect.update(0,f,camera);assert.deepEqual(flow.particles.map(p=>p.position.toArray()),saved);
-    assert.equal(effect.mesh.geometry.instanceCount,saved.length);
+    const count=effect.mesh.geometry.instanceCount;
+    assert.ok(count>0&&count<saved.length&&count<=800);
     const offsets=effect.mesh.geometry.getAttribute('offset');
-    assert.deepEqual(offsets.updateRanges,[{start:0,count:saved.length*3}]);
-    for(let i=1;i<saved.length;i++)assert.ok(offsets.getZ(i)>=offsets.getZ(i-1));
+    assert.deepEqual(offsets.updateRanges,[{start:0,count:count*3}]);
+    for(let i=1;i<count;i++)assert.ok(offsets.getZ(i)>=offsets.getZ(i-1));
     effect.clear();assert.equal(effect.mesh.geometry.instanceCount,0);effect.dispose();
   }
 });

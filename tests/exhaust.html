@@ -1,0 +1,64 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><title>Exhaust visual / performance check</title>
+<style>body{margin:0;background:#131b25;color:#dce4ed;font:14px system-ui}header{padding:12px 18px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}label{display:flex;gap:6px}button,select{font:inherit}#view{height:640px}pre{padding:12px;white-space:pre-wrap}canvas{display:block;max-width:100%;height:auto!important}</style>
+<header><strong>Engine plume</strong><label>Scenario <select id="scenario"><option value="air">Atmosphere</option><option value="vacuum">Vacuum</option><option value="ground">Ground impingement</option><option value="wind">Crosswind</option><option value="gimbal">Gimbal</option><option value="cluster">4 engines</option></select></label><label>Throttle <input id="throttle" type="range" min="0" max="1" step=".01" value="1"></label><button id="pause">Pause</button><button id="side">Side</button><button id="oblique">Oblique</button><button id="axial">End-on</button><button id="benchmark">Benchmark</button><button id="validate">Validate pixels</button></header>
+<div id="view"></div><pre id="results">Drag to orbit. Scroll to zoom. Benchmark: fixed 960×540, DPR 1, 60 warmup + 120 samples. GPU time reported only when timer queries are available.</pre>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {ExhaustEffect} from '../src/exhaust.ts';
+import {ExhaustPlume} from '../src/exhaust-plume.ts';
+import {WasmExhaustFlow,loadExhaustKernel} from '../src/exhaust-kernel.ts';
+import {makePart} from '../src/scene.ts';
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setPixelRatio(1);renderer.setSize(1100,640);renderer.setClearColor('#131b25');
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+document.querySelector('#view').append(renderer.domElement);
+const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1100/640,.05,500),controls=new OrbitControls(camera,renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xe8f1ff,0x455268,3));const sun=new THREE.DirectionalLight(0xffffff,4);sun.position.set(4,7,10);scene.add(sun);
+const v=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z),engine=makePart('engine');scene.add(engine);
+const effect=new ExhaustEffect();await Promise.resolve();effect.flow=new WasmExhaustFlow(await loadExhaustKernel());scene.add(effect.mesh);
+const nozzle=engine.getObjectByName('engine-gimbal');
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(50,50),new THREE.MeshStandardMaterial({color:0x39434c}));ground.rotation.x=-Math.PI/2;ground.position.y=-3;scene.add(ground);
+let paused=false,busy=false,last=0,current='air';
+const frame={origin:v(),airVelocity:v(),up:v(0,1),groundHeight:1000,density:1,emitters:[],obstacles:[]};
+function setup(){current=document.querySelector('#scenario').value;effect.clear();frame.density=current==='vacuum'?0:1;frame.groundHeight=current==='ground'?3:1000;ground.visible=current==='ground';frame.airVelocity.set(current==='wind'?25:0,0,0);nozzle.rotation.z=current==='gimbal'?.10472:0;scene.updateMatrixWorld(true);
+ frame.emitters=[{position:nozzle.localToWorld(v(0,-.76)),direction:v(0,-1).applyQuaternion(nozzle.quaternion),velocity:v(),throttle:1}];
+ if(current==='cluster')for(const x of [-2,2,4])frame.emitters.push({...frame.emitters[0],position:frame.emitters[0].position.clone().add(v(x))});}
+function view(name){controls.target.set(0,-3,0);camera.position.copy(name==='side'?v(0,-3,20):name==='axial'?v(0,-20,.001):v(12,current==='ground'?6:-8,18));controls.update();}
+setup();view('side');
+document.querySelector('#scenario').onchange=setup;document.querySelector('#pause').onclick=()=>{paused=!paused;document.querySelector('#pause').textContent=paused?'Resume':'Pause'};
+for(const name of ['side','oblique','axial'])document.getElementById(name).onclick=()=>view(name);
+const errors=[];renderer.debug.onShaderError=(...args)=>{errors.push('Shader compilation failed');console.error(...args)};
+function draw(dt){for(const e of frame.emitters)e.throttle=+document.querySelector('#throttle').value;effect.update(dt,frame,camera);renderer.render(scene,camera);}
+function animate(time){requestAnimationFrame(animate);if(!busy)draw(paused?0:Math.min(.05,(time-last)/1000));last=time;}requestAnimationFrame(animate);
+const next=()=>new Promise(r=>requestAnimationFrame(r)),median=a=>a.toSorted((a,b)=>a-b)[Math.floor(a.length/2)];
+document.querySelector('#benchmark').onclick=async()=>{busy=true;const rows=[],gl=renderer.getContext(),timer=gl.getExtension('EXT_disjoint_timer_query_webgl2');renderer.setSize(960,540);camera.aspect=960/540;camera.updateProjectionMatrix();
+ try{for(const scenario of ['air','vacuum','ground','cluster']){document.querySelector('#scenario').value=scenario;setup();view('side');const cpu=[],gpu=[];
+ for(let i=0;i<180;i++){await next();const start=performance.now();effect.update(1/60,frame,camera);const elapsed=performance.now()-start;
+ const query=timer?gl.createQuery():null;if(query)gl.beginQuery(timer.TIME_ELAPSED_EXT,query);renderer.render(scene,camera);if(query){gl.endQuery(timer.TIME_ELAPSED_EXT);gl.flush();}
+ if(errors.length||gl.isContextLost())throw Error('Rendering failed');if(i>=60)cpu.push(elapsed);
+ if(query){let polls=0;while(!gl.getQueryParameter(query,gl.QUERY_RESULT_AVAILABLE)){if(++polls>180)throw Error('GPU timer timeout');await next();}if(gl.getParameter(timer.GPU_DISJOINT_EXT))throw Error('GPU timer disjoint');if(i>=60)gpu.push(gl.getQueryParameter(query,gl.QUERY_RESULT)/1e6);gl.deleteQuery(query);}}
+ rows.push({scenario,cpuMedianMs:median(cpu),cpuP95Ms:cpu.toSorted((a,b)=>a-b)[113],gpuMedianMs:gpu.length?median(gpu):null,calls:renderer.info.render.calls,triangles:renderer.info.render.triangles});document.querySelector('#results').textContent=JSON.stringify({gpuTimer:!!timer,rows,errors},null,2);}
+ document.querySelector('#results').textContent+='\nComplete';}catch(e){document.querySelector('#results').textContent+='\nFAILED '+e.stack}finally{busy=false;}};
+document.querySelector('#validate').onclick=()=>{
+  const testScene=new THREE.Scene(),plume=new ExhaustPlume(),target=new THREE.WebGLRenderTarget(256,256),eye=new THREE.PerspectiveCamera(40,1,.05,100);
+  testScene.add(plume.mesh);const pixels=new Uint8Array(256*256*4),checks=[];
+  const f={...frame,origin:v(),up:v(0,1),groundHeight:1000,density:1,emitters:[{position:v(),direction:v(0,-1),velocity:v(),throttle:1}]};
+  function sample(){plume.update(f);renderer.setRenderTarget(target);renderer.setClearColor(0);renderer.render(testScene,eye);renderer.readRenderTargetPixels(target,0,0,256,256,pixels);let total=0,error=0;for(let y=0;y<256;y++)for(let x=0;x<256;x++)for(let c=0;c<3;c++){const value=pixels[(y*256+x)*4+c];total+=value;error+=Math.abs(value-pixels[(y*256+255-x)*4+c]);}return {total,mirrorError:total?error/total:0};}
+  try{
+    for(const mode of ['air-side','vacuum-side','air-end-on']){
+      f.density=mode==='vacuum-side'?0:1;eye.position.copy(mode==='air-end-on'?v(0,-18,0):v(0,-3.5,18));eye.lookAt(0,-3.5,0);
+      const result=sample();checks.push({mode,...result,pass:result.total>1000&&result.mirrorError<.015});
+      if(mode==='vacuum-side'){
+        let largestRise=0;
+        for(let y=188;y>20;y--)largestRise=Math.max(largestRise,pixels[((y-1)*256+127)*4+2]-pixels[(y*256+127)*4+2]);
+        checks.push({mode:'vacuum has no sampling bands',largestRise,pass:largestRise<=2});
+      }
+    }
+    f.emitters=[];const cutoff=sample();checks.push({mode:'cutoff',pass:cutoff.total===0});
+    f.emitters=[{position:v(),direction:v(0,-1),velocity:v(),throttle:1}];f.groundHeight=3;eye.position.set(0,-3.5,18);eye.lookAt(0,-3.5,0);sample();
+    let below=0;for(let y=0;y<128;y++)for(let x=0;x<256;x++)for(let c=0;c<3;c++)below+=pixels[(y*256+x)*4+c];
+    checks.push({mode:'no light below ground',pass:below===0});
+    document.querySelector('#results').textContent=JSON.stringify({pixelChecks:checks,pass:checks.every(c=>c.pass)&&!errors.length,errors},null,2);
+  }finally{renderer.setRenderTarget(null);renderer.setClearColor('#131b25');plume.dispose();target.dispose();}
+};
+</script></html>

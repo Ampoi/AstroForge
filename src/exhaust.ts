@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {WasmExhaustFlow, loadExhaustKernel} from './exhaust-kernel.ts';
+import {ExhaustPlume} from './exhaust-plume.ts';
 
 const UP = new THREE.Vector3(0, 1, 0);
 /** Same six-degree, normalized thrust vector as Simulation.actuation, in model axes. */
@@ -114,6 +115,7 @@ export class ExhaustFlow {
 
 export class ExhaustEffect {
   flow: ExhaustFlow | WasmExhaustFlow = new ExhaustFlow();
+  private plume = new ExhaustPlume();
   private disposed = false;
   private view = new THREE.Matrix4();
   private order = new Uint32Array(2400);
@@ -122,8 +124,8 @@ export class ExhaustEffect {
   private offsets = new Float32Array(this.flow.capacity * 3);
   private values = new Float32Array(this.flow.capacity * 3);
   private material = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: {},
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
+    uniforms: {air: {value: 1}},
     vertexShader: `
       attribute vec3 offset; attribute vec3 parcel;
       varying vec2 uvFlow; varying float age; varying float fade;
@@ -134,15 +136,17 @@ export class ExhaustEffect {
         gl_Position=projectionMatrix*center;
       }`,
     fragmentShader: `
+      uniform float air;
       varying vec2 uvFlow; varying float age; varying float fade;
       void main(){
         float r=length(uvFlow*2.0-1.0); if(r>1.0) discard;
-        float core=exp(-r*r*5.0);
-        float hot=1.0-smoothstep(.07,.38,age);
-        vec3 fire=mix(vec3(1.0,.22,.035),vec3(.68,.87,1.0),exp(-age*22.0)*core);
-        vec3 color=mix(vec3(.48,.52,.55),fire*(1.0+hot*.7),hot);
-        float alpha=pow(1.0-r*r,2.0)*mix(.012,.42,hot)*fade;
-        gl_FragColor=vec4(color,alpha);
+        // Parcels represent only the dilute, cooled mixing wake. Emission is
+        // continuous gas, rendered separately; never light up individual dots.
+        float alpha=exp(-r*r*5.0)*(1.0-smoothstep(.65,1.0,r))*
+          smoothstep(.08,.3,age)*.006*air*fade;
+        gl_FragColor=vec4(vec3(.48,.52,.55),alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
   readonly mesh: THREE.Mesh;
@@ -159,18 +163,29 @@ export class ExhaustEffect {
     this.geometry.instanceCount = 0;
     this.mesh = new THREE.Mesh(this.geometry, this.material); this.mesh.frustumCulled = false;
     this.mesh.name = 'engine-exhaust';
+    this.mesh.add(this.plume.mesh);
   }
-  clear() { this.flow.clear(); this.geometry.instanceCount = 0; }
+  clear() { this.flow.clear(); this.geometry.instanceCount = 0; this.plume.clear(); }
   update(dt: number, frame: ExhaustFrame, camera: THREE.Camera) {
-    this.flow.step(dt, frame);
+    this.plume.update(dt < 0 ? {...frame, emitters: []} : frame);
+    this.material.uniforms.air.value = THREE.MathUtils.clamp(frame.density, 0, 1);
+    // This parcel field is the atmospheric mixing wake, not the hot free jet.
+    // No atmosphere means no entrained smoke and no CPU/overdraw cost for it.
+    if (frame.density < .001) this.flow.clear();
+    else this.flow.step(dt, frame);
     this.mesh.updateMatrixWorld(); camera.updateMatrixWorld();
     const view = this.view.multiplyMatrices(camera.matrixWorldInverse, this.mesh.matrixWorld).elements;
     const data = this.flow instanceof WasmExhaustFlow ? this.flow.data : null;
     const particles = this.flow instanceof ExhaustFlow ? this.flow.particles : null;
-    const count = data ? (this.flow as WasmExhaustFlow).count : particles!.length;
-    for (let i = 0; i < count; i++) {
+    const alive = data ? (this.flow as WasmExhaustFlow).count : particles!.length;
+    let count = 0;
+    for (let i = 0; i < alive; i++) {
       const k = i * 10, p = particles?.[i];
-      this.order[i] = i;
+      const age = data ? data[k+6] : p!.age, seed = data ? data[k+9] : p!.seed;
+      // Stable, emission-seeded thinning; compensate optical weight below.
+      // Never render the young parcels that used to expose the spiral pattern.
+      if (age < .08 || Math.floor(seed * 1000) % 3 !== 0 || count === 800) continue;
+      this.order[count++] = i;
       this.depths[i] = view[2]*(data ? data[k] : p!.position.x) + view[6]*(data ? data[k+1] : p!.position.y) + view[10]*(data ? data[k+2] : p!.position.z);
     }
     // Cache each depth once and sort indices, keeping simulation order stable.
@@ -182,8 +197,11 @@ export class ExhaustEffect {
       this.offsets[j+1] = data ? data[k+1] : p!.position.y;
       this.offsets[j+2] = data ? data[k+2] : p!.position.z;
       const age = data ? data[k+6] : p!.age, life = data ? data[k+7] : p!.life, size = data ? data[k+8] : p!.size;
-      this.values[j] = 2 * (size + age * (1 + .8 * frame.density));
-      this.values[j+1] = age; this.values[j+2] = Math.min(1, (life - age) * 3);
+      const radius = size + .3 + age * (1 + .8 * frame.density);
+      this.values[j] = 2 * radius;
+      // Projected optical depth falls with parcel area as the mixed gas spreads.
+      this.values[j+1] = age;
+      this.values[j+2] = 3 * Math.min(1, (life - age) * 3) * ((size + .3) / radius) ** 2;
     }
     this.geometry.instanceCount = count;
     for (const name of ['offset', 'parcel']) {
@@ -191,5 +209,5 @@ export class ExhaustEffect {
       attribute.clearUpdateRanges(); attribute.addUpdateRange(0, count * 3); attribute.needsUpdate = true;
     }
   }
-  dispose() { this.disposed = true; this.geometry.dispose(); this.material.dispose(); }
+  dispose() { this.disposed = true; this.geometry.dispose(); this.material.dispose(); this.plume.dispose(); }
 }

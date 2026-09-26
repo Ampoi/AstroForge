@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Vector3, Quaternion} from 'three';
-import {ExhaustFlow, engineGimbal} from '../src/exhaust.ts';
+import {Vector3, Quaternion, PerspectiveCamera} from 'three';
+import {ExhaustFlow, ExhaustEffect, engineGimbal} from '../src/exhaust.ts';
+import {plumeEnvelope} from '../src/exhaust-plume.ts';
 import {makePart, RocketScene} from '../src/scene.ts';
 import {Simulation} from '../server/physics.ts';
 import {starterCraft} from '../shared/craft.ts';
@@ -14,6 +15,31 @@ function run(velocity,density=1,seconds=1){
   for(let n=1;n<=seconds*120;n++){f.origin.copy(velocity).multiplyScalar(n/120);flow.step(1/120,f);}
   return flow;
 }
+
+test('continuous gas is centered on each nozzle, follows gimbals, and switches off without stale instances',()=>{
+  const effect=new ExhaustEffect(),f=frame(),camera=new PerspectiveCamera();
+  f.emitters.push({position:v(3,2,1),direction:v(0,-1).applyQuaternion(engineGimbal(1,-1)),velocity:v(),throttle:.3});
+  effect.update(1/60,f,camera);
+  const plume=effect.mesh.getObjectByName('continuous-engine-plume'),geometry=plume.geometry;
+  assert.equal(geometry.instanceCount,2);
+  for(let i=0;i<2;i++){
+    assert.ok(v().fromBufferAttribute(geometry.getAttribute('origin'),i).distanceTo(f.emitters[i].position)<1e-6);
+    assert.ok(v().fromBufferAttribute(geometry.getAttribute('axis'),i).distanceTo(f.emitters[i].direction)<1e-6);
+  }
+  f.emitters[0].throttle=0;effect.update(0,f,camera);assert.equal(geometry.instanceCount,1);
+  f.emitters=[];effect.update(0,f,camera);assert.equal(geometry.instanceCount,0);
+  effect.clear();assert.equal(geometry.instanceCount,0);effect.dispose();
+});
+test('vacuum envelope expands and dilutes without atmospheric smoke or orbital-speed dependence',()=>{
+  const air=plumeEnvelope(1,1),vacuum=plumeEnvelope(1,0),low=plumeEnvelope(.1,1);
+  assert.equal(air.radius,vacuum.radius);assert.ok(vacuum.spread>air.spread);assert.ok(low.length<air.length);
+  const effect=new ExhaustEffect(),f=frame({density:0}),camera=new PerspectiveCamera();
+  f.emitters[0].velocity.set(0,0,7800);effect.update(1/60,f,camera);
+  assert.equal(effect.mesh.geometry.instanceCount,0);assert.equal(effect.flow.particles.length,0);
+  assert.equal(effect.mesh.getObjectByName('continuous-engine-plume').geometry.instanceCount,1);
+  effect.update(-1,f,camera);assert.equal(effect.mesh.getObjectByName('continuous-engine-plume').geometry.instanceCount,0);
+  effect.dispose();
+});
 
 test('nozzle and plume use the actual physics TVC axes and six-degree limit',()=>{
   const sim=new Simulation(starterCraft());
