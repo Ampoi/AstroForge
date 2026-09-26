@@ -75,6 +75,8 @@ OFFにするとその機体の指令とleaseを解除し、UDP送受信を停止
 
 付属クライアントはNode.js（TypeScript版）とPython 3版があります。Python版は標準ライブラリだけで動作します。デモ同士や自作クライアントを同じ受信ポートで同時起動しないでください。
 
+再利用可能なPythonライブラリについては [Python SDK](./python-sdk) を参照してください。既存の `launch.py` はSDKを利用していません。
+
 ```sh
 # Node.js版：20秒で制御を終了
 npm run demo -- --duration 20

@@ -47,6 +47,10 @@ npm run demo:dashboard
 
 ## UDPで何を送る・受け取るか
 
+Pythonから開発する場合は [Python SDK](docs/python-sdk.md) を使えます。
+`python -m pip install -e ./python` で導入し、接続・lease更新・sequence採番をSDKへ任せられます。
+受信・操縦のAPI使用例と、途絶・再接続・終了時の扱いをドキュメントにまとめています。
+
 以下は初期機体の既定ポートです。どちらもクライアント側から見た向きです。
 
 | 用途 | アドレス・形式 |

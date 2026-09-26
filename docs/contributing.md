@@ -115,6 +115,20 @@ python3 tests/bridge_roundtrip.py /path/to/PyLoN
 
 実UDP・デモ・分離の試験は機体の配置や飛行状態を変更するため、日常の飛行とは別のサーバー・保存先を使います。`upstream_compatibility.py`はパケット変換関数の確認です。`bridge_roundtrip.py`は本体のUDPアダプタとPyLoNの`BridgeRuntime`をループバックUDPで接続し、取得・更新・解放、着地・墜落後のsnapshot継続、制御拒否、機体消失とUDP OFFを検証します。ROSは不要で、PyLoNチェックアウトの変更も行いません。ROS/DDSまでの往復検証は外部の`AstroForge_PyLoN_demo/scripts/test-connection.sh`で実施します。この追加のために本体のサーバー・UI・物理計算・ライフサイクルへデモ用処理を追加していません。
 
+## Python SDKを変更する
+
+Python SDKを変更した場合は、Python 3.11以上の仮想環境で追加確認を実行します。
+
+```sh
+python -m pip install -e ./python
+python -m unittest discover -s python/tests -v
+npm run build:physics
+python python/tests/integration.py
+python -m pip wheel ./python --no-deps -w artifacts/python-dist
+```
+
+`integration.py`は専用サーバー・一時保存先・空きポートを作成し、終了時にサーバーを停止します。既存の飛行には接続しません。Windowsでは `python` を `.venv/Scripts/python.exe`、macOS / Linuxでは `.venv/bin/python` に置き換えて実行できます。利用方法は [Python SDK](./python-sdk) を参照してください。
+
 ## ドキュメントを編集する
 
 ```sh
