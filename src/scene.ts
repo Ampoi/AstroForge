@@ -113,7 +113,7 @@ export function makePart(type: PartType, merge=true){
   if(merge)mergeStaticMeshes(g);
   return g;
 }
-function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof THREE.Mesh))return;o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(!Object.values(materials).includes(m))m.dispose();});}
+export function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof THREE.Mesh))return;o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])if(!Object.values(materials).includes(m))m.dispose();});}
 
 export class RocketScene{
   element: HTMLElement; onSelect: (id:string | null)=>void;
