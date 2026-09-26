@@ -16,7 +16,7 @@
     "prebenchmark": "npm run build:physics",
     "prebenchmark:physics": "npm run build:physics",
     "start": "node --import tsx server/index.ts",
-    "dev": "node --import tsx --watch server/index.ts --dev",
+    "dev": "tsx watch server/index.ts --dev",
     "test": "node --import tsx --test tests/*.test.js",
     "benchmark": "node --import tsx tests/benchmark.js",
     "benchmark:physics": "node --import tsx scripts/benchmark-physics.ts",
