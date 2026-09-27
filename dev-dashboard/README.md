@@ -117,3 +117,18 @@ python3 dev-dashboard/tests/smoke_codex.py --codex /absolute/path/to/codex
 通常テストは模擬 Codex と本物の Git / HTTP サーバーを使い、認証・Origin制限・容量上限・依存関係・停止・失敗・再試行・再起動復旧・ブランチへの push を検証します。外部ネットワークや本体起動は不要です。実 Codex テストは API の利用枠を消費し、テンポラリディレクトリのみを変更します。
 
 成功判定は Codex の終了コードと構造化された検証結果です。テスト内容の妥当性まで機械的に証明するものではないため、結果・ログ・diff をレビューして統合します。ROS2 デモの変更にはリポジトリの SpaceROS 検証規則を引き継ぎ、環境不足を成功扱いしません。
+
+## Ubuntu: `bwrap: loopback: Failed RTM_NEWADDR`
+
+端末で成功しても systemd サービスでは失敗する場合があります。Codex Desktop の AppArmor プロファイルを継承する端末での確認だけでは、常駐サービスの動作確認になりません。
+
+```sh
+# モデルを呼ばず、実サービスと同じ systemd 経由で確認
+python3 dev-dashboard/manage.py doctor
+# Ubuntu 24.04 の公式手順。端末で sudo パスワードの入力が必要
+bash dev-dashboard/repair-sandbox.sh
+```
+
+修復スクリプトは OS の前提パッケージ `bubblewrap` / `apparmor-profiles` / `apparmor-utils` を導入し、配布元の `bwrap-userns-restrict` プロファイルを `/etc/apparmor.d/` に配置・ロードします。この OS 設定はダッシュボードのフォルダ外に残る共有のサンドボックス前提条件です。既存プロファイルは上書きしません。AppArmor 全体や Codex のサンドボックスは無効化しません。[OpenAI の公式手順](https://learn.chatgpt.com/docs/sandboxing)に基づきます。
+
+各タスクは依存パッケージ準備・モデル実行の前にサンドボックス起動を検査します。失敗時はログを残してタスクを「要対応」にし、キューを一時停止します。修復後に `doctor` が成功したら、対象タスクを「再試行」にしてキューを再開してください。キャンセル済みタスクは自動再開しません。

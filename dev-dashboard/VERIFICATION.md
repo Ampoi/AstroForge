@@ -1,5 +1,18 @@
 # Verification — 2026-09-27
 
+## Service sandbox correction
+
+The initial real-Codex smoke test ran from the desktop tool environment. It did **not** validate the AppArmor context of the systemd user service. Actual queued work later failed before any repository command with `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.
+
+- Reproduced with `manage.py doctor`, which launches `codex sandbox -P :workspace -- /usr/bin/true` via a new systemd user service, without calling a model.
+- Ubuntu has `kernel.apparmor_restrict_unprivileged_userns=1`, bubblewrap 0.9.0 and AppArmor 4.0.1. The distro's `bwrap-userns-restrict` profile is absent. The desktop has its own user-namespace-enabled AppArmor profile; the service does not inherit it.
+- Added a per-attempt sandbox preflight before setup/model execution. Failure blocks the task and pauses dispatch. Cancellation during preflight does not pause the entire queue.
+- `python3 -m unittest discover -s dev-dashboard/tests -v`: **13 passed**, 8.075s, including failure-before-model and cancellation regression coverage. Python compilation, JavaScript syntax, shell syntax and diff checks passed.
+- Added `repair-sandbox.sh` with the official Ubuntu prerequisite repair. **OS repair is not yet executed**: `sudo -n true` requires a password. Service sandbox verification still fails pending that repair; no successful production worker run is claimed.
+- Queue paused while awaiting OS repair. Existing blocked/cancelled task worktrees retained. No AppArmor/sysctl restriction or Codex sandbox has been disabled.
+
+The original results below describe the initial implementation and should be read with this correction.
+
 ## Environment
 
 - Before implementation: `git pull --ff-only`, main fast-forwarded from `98e71f2` to `04ecda3`.

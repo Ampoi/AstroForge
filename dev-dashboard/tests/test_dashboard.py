@@ -32,6 +32,11 @@ class DashboardTests(unittest.TestCase):
         self.fake.write_text('''#!/usr/bin/env python3
 import json, pathlib, sys, time
 args=sys.argv
+if args[1] == 'sandbox':
+    if pathlib.Path(__file__).with_name('fail-sandbox').exists():
+        print('bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted', flush=True)
+        sys.exit(9)
+    sys.exit(0)
 prompt=sys.stdin.read()
 print(json.dumps({'type':'thread.started'}), flush=True)
 if 'SLOW_TEST' in prompt: time.sleep(30)
@@ -126,7 +131,7 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.queue.action(task['id'], 'cancel')
         result = self.await_state(task['id'], {'cancelled'})
         self.assertNotIn(result['branch'], self.git('ls-remote', '--heads', 'origin'))
-        self.queue.config['timeout_minutes'] = .005
+        self.queue.config['timeout_minutes'] = .01
         other = self.task('SLOW_TEST')
         self.queue.tick()
         self.assertIn('time limit', self.await_state(other['id'], {'blocked'})['error'])
@@ -150,7 +155,7 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         other.db.close()
 
     def test_workers_overlap_and_dispatch_next(self):
-        self.queue.config['timeout_minutes'] = .01
+        self.queue.config['timeout_minutes'] = .02
         first = self.task('SLOW_TEST')
         second = self.task('SLOW_TEST')
         third = self.task()
@@ -181,6 +186,19 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.queue.tick()
         result = self.await_state(task['id'], {'blocked'})
         self.assertIn('code 8', result['error'])
+        self.assertFalse(Path(result['worktree'], 'change.txt').exists())
+
+    def test_sandbox_failure_pauses_before_setup_or_model(self):
+        (self.root / 'fail-sandbox').touch()
+        self.queue.config['setup_commands'] = [[sys.executable, '-c', "open('setup-ran', 'w').close()"]]
+        task = self.task()
+        self.queue.tick()
+        result = self.await_state(task['id'], {'blocked'})
+        self.assertTrue(self.queue.config['paused'])
+        self.assertIn('sandbox preflight failed', result['error'])
+        self.assertIn('Failed RTM_NEWADDR', self.queue.log(result))
+        self.assertNotIn('thread.started', self.queue.log(result))
+        self.assertFalse(Path(result['worktree'], 'setup-ran').exists())
         self.assertFalse(Path(result['worktree'], 'change.txt').exists())
 
     def test_validation(self):

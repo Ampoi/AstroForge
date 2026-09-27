@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import uuid
 import urllib.request
 import urllib.parse
 
@@ -40,7 +41,7 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     init = sub.add_parser('init')
     init.add_argument('--tailscale', action='store_true')
-    for name in ('start', 'stop', 'status', 'token', 'cleanup'):
+    for name in ('start', 'stop', 'status', 'token', 'cleanup', 'doctor'):
         sub.add_parser(name)
     api = sub.add_parser('api')
     api.add_argument('path')
@@ -78,6 +79,17 @@ def main():
         run('systemctl', '--user', 'stop', UNIT)
     elif args.action == 'status':
         run('systemctl', '--user', 'status', UNIT, '--no-pager')
+    elif args.action == 'doctor':
+        cfg = config()
+        # Never inherit the invoking desktop's AppArmor context for this check.
+        try:
+            run('systemd-run', '--user', '--wait', '--pipe', '--collect',
+                '--unit=astroforge-sandbox-check-' + uuid.uuid4().hex[:8],
+                '--setenv=PATH=' + os.environ['PATH'], cfg['codex'], 'sandbox',
+                '-P', ':workspace', '-C', str(ROOT.parent), '--', '/usr/bin/true')
+        except subprocess.CalledProcessError:
+            raise SystemExit('FAIL: service sandbox could not start. On Ubuntu, run bash dev-dashboard/repair-sandbox.sh, then repeat doctor.')
+        print('PASS: Codex sandbox starts from a systemd user service.')
     elif args.action == 'token':
         print((RUNTIME / 'token').read_text().strip())
     elif args.action == 'api':

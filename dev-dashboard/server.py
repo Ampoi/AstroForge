@@ -223,10 +223,15 @@ Task: {task['title']}
                     '-C', str(worktree), '--output-schema', str(ROOT / 'result.schema.json'),
                     '-o', str(result_file), '-']
             deadline = time.monotonic() + self.config['timeout_minutes'] * 60
-            commands = [(setup, '') for setup in self.config['setup_commands']] + [(args, prompt)]
+            # Run in the same service context as the worker, before spending model tokens.
+            # Desktop-launched probes can inherit an AppArmor profile unavailable to systemd.
+            preflight = [self.config['codex'], 'sandbox', '-P', ':workspace',
+                         '-C', str(worktree), '--', '/usr/bin/true']
+            commands = [(preflight, '')] + [(setup, '') for setup in self.config['setup_commands']] + [(args, prompt)]
             with prefix.with_suffix('.jsonl').open('w') as log:
                 for argv, input_text in commands:
-                    log.write(json.dumps({'type': 'dashboard.command', 'command': argv[0]}) + '\n')
+                    log.write(json.dumps({'type': 'dashboard.command', 'command': argv[0],
+                                          'phase': 'sandbox-preflight' if argv is preflight else ('codex' if argv is args else 'setup')}) + '\n')
                     log.flush()
                     with self.lock:
                         if self.get(task_id)['state'] != 'running' or self.stopping.is_set():
@@ -246,8 +251,16 @@ Task: {task['title']}
                                 proc.wait()
                             raise RuntimeError('Worker stopped or exceeded time limit; worktree retained')
                         time.sleep(0.25)
-                    if proc.returncode:
-                        raise RuntimeError(f'{Path(argv[0]).name} exited with code {proc.returncode}; inspect task log')
+                    with self.lock:
+                        if self.get(task_id)['state'] != 'running' or self.stopping.is_set():
+                            return
+                        if proc.returncode:
+                            if argv is preflight:
+                                self.settings({'paused': True})
+                                raise RuntimeError('Codex sandbox preflight failed; queue paused before model execution. '
+                                                   'Inspect the log and run python3 dev-dashboard/manage.py doctor. '
+                                                   'On Ubuntu, see repair-sandbox.sh for the official AppArmor repair.')
+                            raise RuntimeError(f'{Path(argv[0]).name} exited with code {proc.returncode}; inspect task log')
             result = json.loads(result_file.read_text())
             self.update(task_id, result=json.dumps(result))
             if result.get('status') != 'ready' or not result.get('checks'):
