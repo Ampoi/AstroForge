@@ -2,6 +2,7 @@ import type {Craft,LayoutPart} from './types.ts';
 import {layoutCraft} from './craft.ts';
 import {add,sub,rotate,qmul,axisAngle} from './math.ts';
 export const isJoint=(type:string)=>type==='servo'||type==='linear';
+export const jointLimits=(type:string)=>type==='servo'?{lower:-Math.PI/2,upper:Math.PI/2,speed:1,effort:180}:{lower:0,upper:2,speed:.5,effort:1500};
 /** Stack joints move the entire nose-side subtree; radial children follow it. */
 export function articulatedLayout(craft:Craft,positions:Record<string,number>):LayoutPart[]{
   const parts=layoutCraft(craft).map(p=>({...p,rotation:[0,0,0,1]})),core=parts.filter(p=>!p.def.radial);

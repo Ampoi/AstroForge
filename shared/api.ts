@@ -4,6 +4,10 @@ export type AppState = ReturnType<typeof state>;
 export type Vehicle = AppState["vehicles"][number];
 export type UdpState = Vehicle["udp"];
 export interface ApiRoutes {
+  "/api/part-command": {
+    input: { vehicleId: string; command: Record<string, unknown> };
+    output: { accepted: boolean; reason: string };
+  };
   "/api/editor": { input: { libraryId?: string }; output: AppState };
   "/api/flight": { input: Record<string, never>; output: AppState };
   "/api/launch": { input: Craft; output: AppState };

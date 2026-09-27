@@ -59,6 +59,18 @@ export class VehicleUdp{
     for(const id of this.channels.keys())if(!ids.has(id)){await this.disable(id);this.channels.delete(id);}
   }
   async close(){await this.retain([]);}
+  command(id: string, command: unknown){
+    const channel=this.channels.get(id);
+    if(!channel?.socket)throw Error('UDPを有効にしてから操作してください');
+    if(!command||typeof command!=='object'||Array.isArray(command))throw Error('Invalid part command');
+    const input=command as Record<string,unknown>;
+    if(!['pylon_control_authority_command','pylon_motor_command','pylon_actuator_command','pylon_docking_port_command'].includes(String(input.type)))throw Error('Unsupported part command');
+    const packet: Packet=channel.protocol.receive(Buffer.from(JSON.stringify(input)));
+    this.send(channel,packet);
+    // Separation retries can return a journal result without updating lastCommand.
+    const accepted=packet.type==='pylon_separation_result'?packet.success===true:channel.protocol.lastCommand?.accepted===true;
+    return {accepted,reason:String(packet.reason??'invalid_command')};
+  }
   send(channel: Channel,packet: Packet){
     if(!channel.socket)return;
     channel.socket.send(Buffer.from(JSON.stringify(packet)),channel.telemetryPort,this.config.telemetryHost,error=>{if(error)channel.sendErrors++;else channel.sent++;});

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import PartControls from './PartControls.vue';
+import { canControlPart } from '../part-controls.ts';
+import type { UdpState } from '../../shared/api.ts';
 import { PARTS } from '../../shared/craft.ts';
 import type { Part } from '../../shared/types.ts';
 import type { FlightSnapshot } from '../../server/types.ts';
@@ -7,16 +10,17 @@ import { layoutPartCallouts, partApiLink, partInfoRows, type PartInfoSettings, t
 const props = defineProps<{
   parts: Part[]; flight?: Pick<FlightSnapshot, 'engines' | 'wheels' | 'joints'> | null;
   projection: PartProjection; settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
+  udp?: UdpState; unavailable: boolean; sendCommand: (command: Record<string, unknown>) => Promise<void>;
 }>();
-const emit = defineEmits<{ select: [id: string | null]; copy: [id: string] }>();
+const emit = defineEmits<{ select: [id: string | null]; copy: [id: string]; enable: [] }>();
 const entries = computed(() => new Map(props.parts.map(part => {
   const rows = partInfoRows(part, props.flight).filter(row => props.settings[row.key]);
   return [part.id, { part, rows }];
 })));
 const labels = computed(() => {
   const heights = new Map<string, number>();
-  for (const [id, { rows }] of entries.value) {
-    if (id === props.selected) heights.set(id, 192 + rows.filter(r => r.key !== 'id' && r.key !== 'name').length * 20);
+  for (const [id, { rows, part }] of entries.value) {
+    if (id === props.selected) heights.set(id, 192 + rows.filter(r => r.key !== 'id' && r.key !== 'name').length * 20 + (canControlPart(part) ? 360 : 0));
     else if (props.settings.enabled && rows.length) heights.set(id, 16 + rows.length * 20);
   }
   return layoutPartCallouts(props.projection, heights, props.selected, props.flying).map(label => ({ ...label, ...entries.value.get(label.id)! }));
@@ -39,6 +43,8 @@ const hiddenCount = computed(() => props.settings.enabled ? Math.max(0, props.pr
         <div class="part-callout-id"><code>{{ label.id }}</code><button aria-label="パーツIDをコピー" title="パーツIDをコピー" @click="emit('copy', label.id)">コピー</button></div>
         <p v-if="flying && !connected" class="part-stale">通信切断 · 最終受信値</p>
         <dl v-for="row in label.rows.filter(r => r.key !== 'id' && r.key !== 'name')" :key="row.key" class="part-info-row"><dt>{{ row.label }}</dt><dd :title="row.value">{{ row.value }}</dd></dl>
+        <PartControls v-if="canControlPart(label.part)" :key="label.id" :part="label.part" :flying="flying" :connected="connected"
+          :udp="udp" :unavailable="unavailable" :send="sendCommand" @enable="emit('enable')" />
         <nav class="part-api-links" aria-label="選択パーツのAPI資料">
           <a :href="partApiLink(label.part)" target="_blank" rel="noopener">このパーツのAPI利用 ↗</a>
           <a href="/docs/udp/telemetry#アクチュエータ" target="_blank" rel="noopener">IDとmanifestの対応 ↗</a>

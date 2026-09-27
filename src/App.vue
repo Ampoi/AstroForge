@@ -7,7 +7,7 @@ import { TIME_SCALES, isDangerousTimeScale } from "../shared/time-scales.ts";
 import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
-  partInfoSettings, partProjection, copyPartId,
+  partInfoSettings, partProjection, copyPartId, sendPartCommand,
   displayRate,
   renderFps,
   frameRates,
@@ -182,7 +182,8 @@ function closeOnBackdrop(event: MouseEvent) {
       </div>
       <PartOverlay :parts="flying ? focused?.craft.parts ?? [] : craft.parts" :flight="flying ? focused : null"
         :projection="partProjection" :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
-        @select="selectPart" @copy="copyPartId" />
+        :udp="focused?.udp" :unavailable="!focused || focused.passive || ['landed','crashed','destroyed'].includes(focused.status)" :send-command="sendPartCommand"
+        @enable="focused && toggleUdp(focused.id)" @select="selectPart" @copy="copyPartId" />
       <div class="scene-top">
         <div class="craft-title">
           <span id="scene-eyebrow" class="eyebrow">{{

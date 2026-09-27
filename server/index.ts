@@ -96,6 +96,15 @@ const server=http.createServer(async(req,res)=>{
           sim=target;world.activeId=target.id;
         });json(res,200,state());return;
       }
+      if(path==='/api/part-command'){
+        let result;
+        await changeControl(async()=>{
+          if(mode!=='flight')throw Error('パーツ操作はフライト画面で行ってください');
+          if(typeof input.vehicleId!=='string'||!world.vehicles.some(v=>v.id===input.vehicleId))throw Error('機体が見つかりません');
+          result=udp.command(input.vehicleId,input.command);
+        });
+        json(res,200,result);return;
+      }
       if(path==='/api/time-scale'){world.setTimeScale(input.scale);json(res,200,state());return;}
       if(path==='/api/revert'){
         // Explicit legacy reset endpoint. Opening the VAB uses /api/editor instead.

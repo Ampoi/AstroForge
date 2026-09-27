@@ -43,6 +43,7 @@ import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
 import { defaultPartInfoSettings, restorePartInfoSettings, type PartProjection } from './part-info.ts';
+import { PartController } from './part-controls.ts';
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
 export const num = (value: number | null | undefined, digits = 0) =>
@@ -78,6 +79,7 @@ export async function api<K extends keyof ApiRoutes>(
   return result as ApiRoutes[K]["output"];
 }
 export function useWorkshop() {
+  const partController = new PartController(`gui-${crypto.randomUUID()}`, crypto.randomUUID());
   const partInfoSettings = ref({ ...defaultPartInfoSettings });
   const partProjection = shallowRef<PartProjection>({width:0,height:0,anchors:[]});
   const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
@@ -187,7 +189,7 @@ export function useWorkshop() {
   );
   const subtitle = computed(() =>
     flying.value
-      ? `${focused.value?.wheels.length ? "地表走行" : focused.value ? phase[focused.value.status] : ""} · 制御はUDPから`
+      ? `${focused.value?.wheels.length ? "地表走行" : focused.value ? phase[focused.value.status] : ""} · パーツを選択して操作 / UDP制御`
       : craft.value.rootId
         ? `接続 ${active.value.parts.length} 個 · 未接続 ${loose.value} 個 · 子パーツごとドラッグ`
         : "最初のパーツを配置してルートを作成",
@@ -537,6 +539,14 @@ export function useWorkshop() {
       pendingUdp.value.delete(id);
     }
   }
+  async function sendPartCommand(command: Record<string, unknown>) {
+    const vehicle = focused.value, session = vehicle?.udp.session, partId = selected.value;
+    if (!vehicle || !session) throw Error('UDPを有効にしてから操作してください');
+    const isCurrent = () => connected.value && flying.value && focused.value?.id === vehicle.id &&
+      selected.value === partId && focused.value?.udp.session?.runtimeEpoch === session.runtimeEpoch;
+    await partController.send(session, command,
+      command => api('/api/part-command', {vehicleId:vehicle.id, command}), isCurrent);
+  }
   async function setTimeScale(event: Event) {
     const target = event.target as HTMLSelectElement;
     try {
@@ -705,7 +715,7 @@ export function useWorkshop() {
     document.body.classList.remove("flight-mode");
   });
   return {
-    partInfoSettings, partProjection, copyPartId,
+    partInfoSettings, partProjection, copyPartId, sendPartCommand,
     displayRate,
     renderFps,
     frameRates,

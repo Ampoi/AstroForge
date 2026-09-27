@@ -1,9 +1,9 @@
 import type {Simulation} from './physics.ts';
 import type {WireCommand} from './types.ts';
-import {isJoint} from '../shared/articulation.ts';
+import {isJoint,jointLimits} from '../shared/articulation.ts';
+export {jointLimits} from '../shared/articulation.ts';
 import {add,sub,mul,cross,dot,rotate,clamp} from '../shared/math.ts';
 export interface JointState{position:number;velocity:number;effort:number;current:number;target:number;commandMode:string;commandActive:boolean;powered:boolean;engaged:boolean;locked:boolean}
-export const jointLimits=(type:string)=>type==='servo'?{lower:-Math.PI/2,upper:Math.PI/2,speed:1,effort:180}:{lower:0,upper:2,speed:.5,effort:1500};
 export function jointStates(sim:Simulation){
   for(const p of sim.craft.parts.filter(p=>isJoint(p.type)))sim.joints[p.id]??={position:0,velocity:0,effort:0,current:0,target:0,commandMode:'position',commandActive:false,powered:sim.charge>0,engaged:false,locked:true};
   return sim.joints;

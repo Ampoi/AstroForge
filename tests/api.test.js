@@ -102,6 +102,28 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   s=await post('launch',starterCraft());assert.ok(!s.vehicles.some(v=>v.id===secondId));
   assert.equal(s.vehicles.find(v=>v.id===firstId).udp.enabled,true);
   const freed=dgram.createSocket('udp4');freed.bind(second.commandPort,'127.0.0.1');await once(freed,'listening');freed.close();
+  // The part menu sends the same leased commands through HTTP as UDP clients.
+  const articulated=starterCraft();articulated.parts.splice(1,0,{id:'gui_slide',type:'linear'});
+  s=await post('launch',articulated);await post('time-scale',{scale:1});
+  const guiId=s.activeVehicleId;
+  await post('part-command',{vehicleId:guiId,command:{}},400);
+  s=await post('control',{vehicleId:guiId,enabled:true});
+  let seq=0;const guiSession=s.connection.session;
+  const gui=command=>post('part-command',{vehicleId:guiId,command:{...guiSession,controllerId:'gui-test',leaseId:'gui-lease',sequence:++seq,...command}});
+  assert.equal((await gui({type:'pylon_control_authority_command',action:'acquire',priority:0,suppressSas:false,leaseDurationSeconds:10})).accepted,true);
+  const motor={type:'pylon_motor_command',name:'gui_slide',hasEnabled:true,enabled:true,mode:'position',hasPosition:true,position:.4,timeoutSeconds:10};
+  assert.equal((await gui(motor)).accepted,true);
+  for(let i=0;i<100;i++){s=await get();if(s.flight.joints.find(j=>j.id==='gui_slide')?.position>.02)break;await delay(20);}
+  assert.ok(s.flight.joints.find(j=>j.id==='gui_slide').position>.02);
+  assert.equal((await gui({...motor,position:null})).accepted,false);
+  assert.equal((await gui({...motor,name:'missing'})).accepted,false);
+  const stopped=await gui({...motor,enabled:false});assert.equal(stopped.accepted,true);
+  await delay(50);const atStop=(await get()).flight.joints.find(j=>j.id==='gui_slide').position;
+  await delay(50);assert.equal((await get()).flight.joints.find(j=>j.id==='gui_slide').position,atStop);
+  assert.equal((await gui({type:'pylon_control_authority_command',action:'release'})).accepted,true);
+  await post('control',{vehicleId:guiId,enabled:false});await post('control',{vehicleId:guiId,enabled:true});
+  assert.equal((await gui(motor)).reason,'runtime_session_mismatch');
+  await post('editor',{});await post('part-command',{vehicleId:guiId,command:motor},400);
   s=await post('revert',{});assert.equal(s.vehicles.length,1);assert.equal(s.connection.enabled,false);
   await stop();await start();s=await get();assert.equal(s.library.find(e=>e.id===saved1.libraryId).craft.name,'Updated one');assert.equal(s.library.find(e=>e.id===saved2.libraryId).craft.name,'Saved two');assert.equal(s.craft.name,'Updated one');
 });
