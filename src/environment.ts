@@ -35,6 +35,7 @@ uniform vec3 sunPosition;
 uniform float sunRadius;
 uniform mat3 cameraRotation;
 uniform mat4 viewProjection;
+uniform vec3 flightCameraPosition;
 uniform float pixelAngle;
 uniform float aspect;
 uniform float tanFov;
@@ -92,6 +93,12 @@ void main(){
   vec4 cloud=traceClouds(observer,d,hit,cloudDistance);
   color=color*cloud.a+cloud.rgb;
   starTransmission*=cloud.a;
+  // Resolve substantial cloud cover before local terrain is drawn. Nearby
+  // vehicles and hills still pass the depth test; thin wisps retain terrain detail.
+  if(globe<.5&&cloud.a<.8){
+    vec4 clip=viewProjection*vec4(flightCameraPosition+d*cloudDistance*6371000.,1.);
+    gl_FragDepth=clamp(clip.z/clip.w*.5+.5,0.,1.);
+  }
   // Six samples of exponential atmospheric density. Visual scattering approximation.
   vec2 air=sphere(observer,d,ATM);
   if(air.y>0.){
@@ -126,7 +133,8 @@ export class EarthEnvironment{
   readonly sun=new SunBody();
   private readonly weather=weatherTexture();
   private readonly planet=planetTexture();
-  private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false});
+  private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthTexture:new THREE.DepthTexture(1,1)});
+  private readonly flightCameraPosition={value:new THREE.Vector3()};
   private readonly composite=new THREE.Scene();
   private readonly renderSize=new THREE.Vector2();
   private readonly skyTexel=new THREE.Vector2(1,1);
@@ -140,15 +148,15 @@ export class EarthEnvironment{
     const {map,ready}=this.planet;this.ready=Promise.all([ready,this.weather.ready]).then(()=>{});
     this.uniforms=makeUniforms(map,this.weather.map);
     this.uniforms.sunPosition.value=this.sun.position;this.uniforms.sunRadius.value=this.sun.radius;
-    const material=new THREE.ShaderMaterial({uniforms:this.uniforms,vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
+    const material=new THREE.ShaderMaterial({uniforms:{...this.uniforms,flightCameraPosition:this.flightCameraPosition},vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
     const copy=new THREE.ShaderMaterial({
-      uniforms:{background:{value:this.background.texture},texel:{value:this.skyTexel},stars:this.uniforms.stars,
+      uniforms:{background:{value:this.background.texture},backgroundDepth:{value:this.background.depthTexture},texel:{value:this.skyTexel},stars:this.uniforms.stars,
         observer:this.uniforms.observer,cameraRotation:this.uniforms.cameraRotation,aspect:this.uniforms.aspect,
         tanFov:this.uniforms.tanFov,viewProjection:this.uniforms.viewProjection,globe:this.uniforms.globe},
       depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth,
       vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
-      fragmentShader: `uniform sampler2D background; uniform sampler2D stars; uniform vec2 texel; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D background; uniform sampler2D backgroundDepth; uniform sampler2D stars; uniform vec2 texel; varying vec2 vUv;
         uniform vec3 observer; uniform mat3 cameraRotation; uniform mat4 viewProjection;
         uniform float aspect; uniform float tanFov; uniform float globe;
         void main(){
@@ -156,7 +164,7 @@ export class EarthEnvironment{
           vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
           // Reconstruct planet depth at display resolution so orbit tracks are
           // occluded correctly even though cloud colour uses a bounded buffer.
-          gl_FragDepth=1.;
+          gl_FragDepth=globe>.5?1.:texture2D(backgroundDepth,vUv).r;
           if(globe>.5){
             float b=dot(observer,d),h=b*b-dot(observer,observer)+1.;
             if(h>=0.){
@@ -212,7 +220,7 @@ export class EarthEnvironment{
     this.uniforms.earthMap.value.dispose();this.uniforms.stars.value.dispose();this.uniforms.cloudNoise.value.dispose();
   }
   render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3){
-    camera.updateMatrixWorld();
+    camera.updateMatrixWorld();this.flightCameraPosition.value.copy(camera.position);
     const u=this.uniforms;
     u.observer.value.copy(globe?camera.position.clone().divideScalar(10):this.position.clone().add(camera.position.clone().sub(rocketCenter).divideScalar(EARTH_RADIUS)));
     u.cameraRotation.value.setFromMatrix4(camera.matrixWorld);u.aspect.value=camera.aspect;u.tanFov.value=Math.tan(camera.fov*Math.PI/360);u.globe.value=globe?1:0;

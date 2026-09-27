@@ -76,7 +76,12 @@ export function weatherAt(longitude: number,latitude: number,land: number){
   const formed=cloudFormation(moisture,ascent,subsidence);
   const coverage=clamp(formed+marine*.75);
   const lowBody=body*(1-frontal*.65)+frontalBody*frontal*.65;
-  const low=smooth(.53-.36*coverage,.78-.38*coverage,lowBody)*smooth(0,.16,coverage);
+  // The fixed launch site (0°, 0°) starts under scattered fair-weather cumulus.
+  // Keep this in the shared weather atlas so ground and orbital views agree;
+  // the local 3D field supplies the gaps and individual billows. Fade the
+  // regional layer smoothly into the rest of the synthetic weather snapshot.
+  const launchCumulus=region(lon,lat,{lon:0,lat:0},.09,.09)*(.68+.10*meso);
+  const low=Math.max(launchCumulus,smooth(.53-.36*coverage,.78-.38*coverage,lowBody)*smooth(0,.16,coverage));
   const middle=clamp((frontal*.85+shield*.50+convergence*.20)*formed*smooth(.20,.70,frontalBody));
   const high=clamp((frontal*.45+shield*.75+convergence*.85)*smooth(.18,.68,frontalBody)*(1-clamp(subsidence)*.7));
   return [low,middle,high,clamp(.35+convergence*.65-marine*.5)];

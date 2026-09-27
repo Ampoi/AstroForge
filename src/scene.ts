@@ -488,7 +488,7 @@ export class RocketScene{
     if(this.mode==='flight'){
       this.lighting.flight(this.environment.sun,this.environment.position,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       this.environment.render(this.renderer,this.camera,this.globe,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
-      if(this.globe)return;this.renderer.clearDepth();
+      if(this.globe)return;
     }
     if(this.mode==='editor')this.hangar.update(this.camera);
     this.renderer.render(this.scene,this.camera);

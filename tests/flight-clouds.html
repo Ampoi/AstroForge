@@ -1,0 +1,56 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Default flight cloud regression</title>
+<style>body{margin:0;background:#07101a;color:white;font:14px system-ui}#scene{height:72vh}pre{white-space:pre-wrap;margin:12px}</style>
+<div id="scene"></div><pre id="status">Checking the default flight camera at the launch site…</pre>
+<script type="module">
+// Use the production vehicle, terrain, default follow camera and weather atlas.
+// Compare GPU pixels with/without clouds; a cloudy location elsewhere is not a
+// substitute for visible clouds in the ordinary launch-site flight view.
+import * as THREE from 'three';
+import {RocketScene} from '../src/scene.ts';
+import {starterCraft,massProperties,craftStats} from '../shared/craft.ts';
+import {EARTH_RADIUS} from '../src/celestial.ts';
+const scene=new RocketScene(document.querySelector('#scene'),()=>{},()=>{});
+scene.running=false;cancelAnimationFrame(scene.frame);
+const craft=starterCraft(),props=massProperties(craft),stats=craftStats(craft);
+scene.setCraft(craft);scene.setMode('flight');await scene.environment.ready;
+const renderer=scene.renderer,environment=scene.environment,atlas=environment.uniforms.cloudWeather.value;
+const empty=new THREE.CubeTexture(Array.from({length:6},()=>new THREE.DataTexture(new Uint8Array(4),1,1)));empty.needsUpdate=true;
+const center=new THREE.Vector3(0,stats.height/2,0),target=new THREE.WebGLRenderTarget(1,1),results=[];
+function pose(altitude){
+  const f={id:'launch-cloud-check',craft,time:0,status:altitude?'flying':'pad',position:[EARTH_RADIUS+props.com[0]+altitude,0,0],velocity:[0,0,0],quaternion:[0,0,0,1],omega:[0,0,0],com:props.com,stats,
+    altitude,altitudeAsl:props.com[0]+altitude,engines:[],debris:[],joints:[],wheels:[],partPoses:[]};
+  scene.updateFlight(f,[]);scene.renderFlight(f,performance.now());scene.fit();scene.camera.updateMatrixWorld();
+}
+function draw(clouds,output){
+  environment.uniforms.cloudWeather.value=clouds?atlas:empty;
+  renderer.setRenderTarget(output);renderer.clear();scene.lighting.flight(environment.sun,environment.position,center);
+  environment.render(renderer,scene.camera,false,center);renderer.render(scene.scene,scene.camera);
+}
+renderer.setPixelRatio(1);
+for(const [width,height] of [[1280,720],[509,717]]){
+  renderer.setSize(width,height);scene.camera.aspect=width/height;scene.camera.updateProjectionMatrix();target.setSize(width,height);
+  for(const altitude of [0,1500,12000]){
+    pose(altitude);const cloudy=new Uint8Array(width*height*4),clear=new Uint8Array(cloudy.length);
+    draw(true,target);renderer.readRenderTargetPixels(target,0,0,width,height,cloudy);
+    draw(false,target);renderer.readRenderTargetPixels(target,0,0,width,height,clear);
+    // The upper 12% is sky in the unchanged default launch camera. In ascent,
+    // also compare the full frame because the camera can look down on clouds.
+    const start=altitude?0:Math.floor(height*.88)*width*4;
+    let visible=0;
+    for(let i=start;i<cloudy.length;i+=4)if(Math.abs(cloudy[i]-clear[i])+Math.abs(cloudy[i+1]-clear[i+1])+Math.abs(cloudy[i+2]-clear[i+2])>35)visible++;
+    const fraction=visible/((cloudy.length-start)/4),ok=fraction>.05;
+    results.push(`${ok?'PASS':'FAIL'} ${width}×${height}, altitude ${altitude} m: visible clouds ${(fraction*100).toFixed(1)}%${altitude?' of frame':' of sky'}`);
+  }
+  // A nearby object must stay visible even when clouds occlude the terrain.
+  const marker=new THREE.Mesh(new THREE.SphereGeometry(.15,12,8),new THREE.MeshBasicMaterial({color:0xff00ff,toneMapped:false,fog:false}));
+  marker.position.copy(scene.camera.position).addScaledVector(scene.camera.getWorldDirection(new THREE.Vector3()),1);
+  scene.scene.add(marker);draw(true,target);
+  const pixel=new Uint8Array(4);renderer.readRenderTargetPixels(target,Math.floor(width/2),Math.floor(height/2),1,1,pixel);
+  results.push(`${pixel[0]>250&&pixel[1]<5&&pixel[2]>250?'PASS':'FAIL'} ${width}×${height}: nearby geometry remains in front of clouds`);
+  scene.scene.remove(marker);marker.geometry.dispose();marker.material.dispose();
+}
+const error=renderer.getContext().getError();results.push(`${error===0?'PASS':'FAIL'} WebGL error: ${error}`);
+scene.resize();pose(0);draw(true,null);
+document.querySelector('#status').textContent=results.join('\n');
+window.addEventListener('pagehide',()=>{target.dispose();empty.dispose();scene.dispose();});
+</script></html>

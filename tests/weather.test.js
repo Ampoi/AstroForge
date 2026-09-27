@@ -31,6 +31,16 @@ test('weather has coherent clear regions, multi-level fronts and low marine deck
   assert.ok(marine[3]<front[3],'marine clouds must be shallower than frontal clouds');
 });
 
+test('the launch region has scattered low clouds without covering the global clear regions',()=>{
+  // A ground-level horizon reaches neighbouring weather texels, not just (0,0).
+  for(const land of [0,1])for(const lon of [-1,0,1])for(const lat of [-1,0,1]){
+    const [low,middle,high]=at(lon,lat,land);
+    assert.ok(low>.6&&low<.85,`launch cumulus at ${lon},${lat}: ${low}`);
+    assert.ok(middle<.1&&high<.1,'launch sky should not be a multilayer overcast');
+  }
+  assert.ok(fraction(at(-40,27))<.3,'the subtropical clear region must stay clear');
+});
+
 test('cube directions join across edges and put the polar caps on the correct faces',()=>{
   for(const v of [-1,-.5,0,.5,1]){
     assert.deepEqual(weatherDirection(0,1,v),weatherDirection(5,-1,v));
