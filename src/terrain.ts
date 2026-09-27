@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import {PLANET_RADIUS,TERRAIN_STEP,terrainDirection,terrainCoordinates,terrainVertexSample,terrainColor} from '../shared/terrain.ts';
+import {PLANET_MAP_WIDTH,PLANET_MAP_HEIGHT} from './terrain-map.ts';
 
 export function planetTexture(){
-  const map=new THREE.DataTexture(new Uint8Array([18,49,76,0]),1,1,THREE.RGBAFormat);
+  // WebGL storage is immutable after the first frame. Keep the placeholder at
+  // the worker's final size so starting in flight can upload the finished map.
+  const pixels=new Uint8Array(PLANET_MAP_WIDTH*PLANET_MAP_HEIGHT*4);
+  for(let i=0;i<pixels.length;i+=4){pixels[i]=18;pixels[i+1]=49;pixels[i+2]=76;}
+  const map=new THREE.DataTexture(pixels,PLANET_MAP_WIDTH,PLANET_MAP_HEIGHT,THREE.RGBAFormat);
   const worker=new Worker(new URL('./terrain-worker.ts',import.meta.url),{type:'module'});
   const ready=new Promise<void>((resolve,reject)=>{
     worker.onmessage=({data})=>{map.image=data;map.needsUpdate=true;worker.terminate();resolve();};

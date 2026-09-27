@@ -12,7 +12,6 @@ import {starterCraft} from '../shared/craft.ts';
 import {EARTH_RADIUS,EARTH_SPIN} from '../src/celestial.ts';
 const scene=new RocketScene(document.querySelector('#scene'),()=>{},()=>{});
 scene.setCraft(starterCraft());
-await scene.environment.ready;
 let current='Ground';
 function view(name){
   current=name;scene.setMode(name==='Editor'?'editor':'flight');
@@ -43,6 +42,8 @@ function view(name){
 }
 for(const b of document.querySelectorAll('button'))b.onclick=()=>view(b.textContent);
 view('Ground');
+// Keep drawing during loading, just like a game resumed directly into flight.
+await scene.environment.ready;
 setInterval(()=>{
   const programs=scene.renderer.info.programs||[];
   const valid=programs.length&&programs.every(p=>p.diagnostics?.runnable!==false);

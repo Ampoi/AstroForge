@@ -5,7 +5,10 @@ export const WEATHER_FACE_SIZE=128;
  * All layers share a fixed Earth-relative snapshot. No weather generation or
  * network polling happens in the render loop. */
 export function weatherTexture(){
-  const map=new THREE.CubeTexture(Array.from({length:6},()=>new THREE.DataTexture(new Uint8Array(4),1,1,THREE.RGBAFormat)));
+  // Flight can render before fetch completes. Cube faces must retain their
+  // dimensions after the first GPU upload, including all generated mip levels.
+  const clear=new Uint8Array(WEATHER_FACE_SIZE*WEATHER_FACE_SIZE*4);
+  const map=new THREE.CubeTexture(Array.from({length:6},()=>new THREE.DataTexture(clear,WEATHER_FACE_SIZE,WEATHER_FACE_SIZE,THREE.RGBAFormat)));
   map.minFilter=THREE.LinearMipmapLinearFilter;map.magFilter=THREE.LinearFilter;map.generateMipmaps=true;map.needsUpdate=true;
   let disposed=false;
   const ready=fetch('/assets/cloud-weather.rgba').then(response=>{

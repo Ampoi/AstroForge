@@ -83,11 +83,16 @@ test('committed atlas matches its generator and has both sunny and dense cloudy 
 test('weather texture loads once, filters distant regions and disposes its GPU resource',async t=>{
   const bytes=readFileSync(new URL('../public/assets/cloud-weather.rgba',import.meta.url));
   const fetch=t.mock.method(globalThis,'fetch',async()=>new Response(bytes));
-  const weather=weatherTexture();await weather.ready;
+  const weather=weatherTexture(),initial=weather.map.images.map(face=>({...face.image}));await weather.ready;
   assert.equal(fetch.mock.callCount(),1);
   assert.equal(fetch.mock.calls[0].arguments[0],'/assets/cloud-weather.rgba');
   assert.ok(weather.map.isCubeTexture);assert.equal(weather.map.images.length,6);
   for(const face of weather.map.images){assert.equal(face.image.width,WEATHER_FACE_SIZE);assert.equal(face.image.height,WEATHER_FACE_SIZE);}
+  weather.map.images.forEach((face,i)=>{
+    assert.equal(face.image.width,initial[i].width,'GPU storage cannot grow after the first frame');
+    assert.equal(face.image.height,initial[i].height);
+    assert.ok(initial[i].data.every(value=>value===0),'loading weather must be clear');
+  });
   assert.equal(weather.map.wrapS,THREE.ClampToEdgeWrapping);assert.equal(weather.map.wrapT,THREE.ClampToEdgeWrapping);
   assert.equal(weather.map.minFilter,THREE.LinearMipmapLinearFilter);assert.ok(weather.map.generateMipmaps);
   let disposed=false;weather.map.addEventListener('dispose',()=>{disposed=true;});weather.dispose();assert.ok(disposed);
@@ -99,7 +104,7 @@ test('missing or invalid atlas keeps a valid clear texture and resolves initiali
   for(const response of [new Response(null,{status:404}),new Response(new Uint8Array(12))]){
     fetch.mock.mockImplementation(async()=>response);
     const weather=weatherTexture();await weather.ready;
-    for(const face of weather.map.images){assert.equal(face.image.width,1);assert.deepEqual(face.image.data,new Uint8Array(4));}weather.dispose();
+    for(const face of weather.map.images){assert.equal(face.image.width,WEATHER_FACE_SIZE);assert.equal(face.image.height,WEATHER_FACE_SIZE);assert.ok(face.image.data.every(value=>value===0));}weather.dispose();
   }
   assert.equal(warnings.mock.callCount(),2);
 });
@@ -107,7 +112,7 @@ test('missing or invalid atlas keeps a valid clear texture and resolves initiali
 test('disposal while an atlas is loading cannot upload into the discarded texture',async t=>{
   let complete;
   t.mock.method(globalThis,'fetch',()=>new Promise(resolve=>{complete=resolve;}));
-  const weather=weatherTexture();weather.dispose();
+  const weather=weatherTexture(),initial=weather.map.images;weather.dispose();
   complete(new Response(new Uint8Array(WEATHER_FACE_SIZE**2*6*4)));
-  await weather.ready;assert.ok(weather.map.images.every(face=>face.image.width===1));
+  await weather.ready;assert.equal(weather.map.images,initial);
 });

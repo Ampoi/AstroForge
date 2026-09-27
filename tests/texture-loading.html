@@ -1,0 +1,54 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><title>Texture loading regression</title>
+<style>body{background:#07101a;color:#eee;font:16px system-ui;padding:24px}pre{white-space:pre-wrap}</style>
+<h1>Asynchronous planet and cloud textures</h1><pre id="status">Loading…</pre>
+<script type="module">
+// Run with Vite at /tests/texture-loading.html. Upload the placeholders before
+// either loader completes, as happens when resuming directly into flight.
+import * as THREE from 'three';
+import {planetTexture} from '../src/terrain.ts';
+import {weatherTexture} from '../src/weather.ts';
+const renderer=new THREE.WebGLRenderer(),target=new THREE.WebGLRenderTarget(1,1);
+const planet=planetTexture(),weather=weatherTexture(),scene=new THREE.Scene();
+const camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+const material=new THREE.ShaderMaterial({
+  uniforms:{planet:{value:planet.map},weather:{value:weather.map},coord:{value:new THREE.Vector2()},direction:{value:new THREE.Vector3()},cube:{value:false}},
+  vertexShader:'void main(){gl_Position=vec4(position.xy,0.,1.);}',
+  fragmentShader:'uniform sampler2D planet; uniform samplerCube weather; uniform vec2 coord; uniform vec3 direction; uniform bool cube; void main(){gl_FragColor=cube?textureLod(weather,direction,0.):textureLod(planet,coord,0.);}',
+});
+scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),material));
+const results=[];
+function check(name,expected){
+  renderer.setRenderTarget(target);renderer.render(scene,camera);
+  const actual=new Uint8Array(4);renderer.readRenderTargetPixels(target,0,0,1,1,actual);
+  const ok=expected.every((v,i)=>Math.abs(actual[i]-v)<=2);
+  results.push(`${ok?'PASS':'FAIL'} ${name}: GPU ${[...actual]} / expected ${expected}`);
+  return ok;
+}
+try{
+  // Both samplers are bound on the first frame, before the asynchronous loads.
+  renderer.initTexture(planet.map);renderer.initTexture(weather.map);
+  const initialPlanet=planet.map.image,initialWeather=weather.map.images[0].image;
+  check('ocean placeholder',[...new THREE.Color().setRGB(18/255,49/255,76/255,THREE.SRGBColorSpace).toArray().map(v=>Math.round(v*255)),0]);
+  material.uniforms.cube.value=true;material.uniforms.direction.value.set(1,0,0);
+  check('clear weather placeholder',[0,0,0,0]);
+  await Promise.all([planet.ready,weather.ready]);
+  const {data,width,height}=planet.map.image;
+  let land=0;for(let i=0;i<data.length;i+=4)if(data[i+3]>100){land=i;break;}
+  const x=land/4%width,y=Math.floor(land/4/width);
+  material.uniforms.cube.value=false;material.uniforms.coord.value.set((x+.5)/width,(y+.5)/height);
+  const color=new THREE.Color().setRGB(data[land]/255,data[land+1]/255,data[land+2]/255,THREE.SRGBColorSpace);
+  check('loaded land',[...color.toArray().map(v=>Math.round(v*255)),data[land+3]]);
+  material.uniforms.cube.value=true;
+  for(let face=0;face<6;face++){
+    const image=weather.map.images[face].image,x=Math.floor(image.width/2),y=Math.floor(image.height/2);
+    const u=2*(x+.5)/image.width-1,v=2*(y+.5)/image.height-1;
+    material.uniforms.direction.value.fromArray([[1,-v,-u],[-1,-v,u],[u,1,v],[u,-1,-v],[u,-v,1],[-u,-v,-1]][face]);
+    check(`loaded weather face ${face}`,[...image.data.slice((y*image.width+x)*4,(y*image.width+x)*4+4)]);
+  }
+  const stable=initialPlanet.width===width&&initialPlanet.height===height&&initialWeather.width===weather.map.images[0].image.width;
+  results.push(`${stable?'PASS':'FAIL'} texture dimensions remain stable after first GPU upload`);
+  const error=renderer.getContext().getError();results.push(`${error===0?'PASS':'FAIL'} WebGL error: ${error}`);
+}catch(error){results.push(`FAIL ${error.stack}`);}
+document.querySelector('#status').textContent=results.join('\n');
+planet.dispose();planet.map.dispose();weather.dispose();material.dispose();scene.children[0].geometry.dispose();target.dispose();renderer.dispose();
+</script></html>

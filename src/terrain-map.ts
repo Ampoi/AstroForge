@@ -1,4 +1,5 @@
 import {TERRAIN_MAX_HEIGHT,terrainDirection,terrainSample,terrainColor} from '../shared/terrain.ts';
+export const PLANET_MAP_WIDTH=2048,PLANET_MAP_HEIGHT=1024;
 export function planetPixels(width:number,height:number){
   const data=new Uint8Array(width*height*4);
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
