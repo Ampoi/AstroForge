@@ -41,7 +41,7 @@ def attention_for(task):
     visual = any(word in text for word in ('未検証', '未実行', '不可', 'できず', 'できません')) and any(word in text for word in ('webgl', 'ブラウザ', 'ブラウザー', '実画面', 'gpu'))
     if permission:
         reason = '実行環境の権限制限により、必要なビルド・全体テストを完了できていません。'
-        steps.append('通常の端末で、このタスクの作業場所へ移動し、npm test を実行して Zig 起動・通信権限のエラーが解消するか確認してください。' if 'npm test' in text else '通常の端末で、このタスクの作業場所へ移動し、検証結果に記載された失敗コマンドを再実行してください。')
+        steps.append('「対応後に再試行」を押すと、Approve for me で必要な権限を自動審査して検証を再開します。自動審査で停止する場合は「承認を自分で確認して再試行」を選び、表示された実行内容を確認して承認してください。')
     elif evidence:
         reason = '必要な検証に失敗、または未実施の項目があります。'
         steps.append('下の「未完了の検証」を確認し、このタスクの作業場所で失敗箇所を修正・再検証してください。')
@@ -49,7 +49,7 @@ def attention_for(task):
         reason = error or '実行を続けるための確認が必要です。'
         steps.append('ログ末尾とエラー詳細を確認してください。原因や必要な対応が不明なら、タスク ID とログを Codex に渡して調査を依頼してください。')
     if visual:
-        steps.append('ブラウザーが使える環境で対象画面を開き、表示を目視確認してください。今回の結果では実描画を確認できていません。')
+        steps.append('再試行時はブラウザーでの描画検証も必要です。ブラウザー環境自体が利用できない場合は、その不足を結果に表示します。今回の結果では実描画を確認できていません。')
     if permission or evidence:
-        steps.append('原因を解消して「対応後に再試行」を押してください。変更は保持されます。同じ権限制限が残ると再び停止します。')
+        steps.append('再試行でも変更は保持されます。未完了の検証が成功すると開発完了になります。')
     return guidance(reason, steps, 'inferred')

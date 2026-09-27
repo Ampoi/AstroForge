@@ -51,7 +51,7 @@ npm install --prefix dev-dashboard/.runtime/codex-cli --no-audit --no-fund @open
 
 `init` はこの専用 CLI があれば優先します。既に初期化済みなら `.runtime/config.json` の `codex` に `dev-dashboard/.runtime/codex-cli/node_modules/.bin/codex` の**絶対パス**を設定します。モデルは利用者の Codex 設定を継承します。
 
-実行には [Codex の非対話モード](https://learn.chatgpt.com/docs/non-interactive-mode) (`codex exec --sandbox workspace-write --json --output-schema`) を使います。承認が必要な作業は無断で権限を広げず「要対応」にします。依存パッケージの取得や SpaceROS の実行など、サンドボックスでできない操作がある場合は、その worktree で必要な準備・検証を行って再試行してください。AstroForge では各試行の冒頭にサービス側で `npm ci --ignore-scripts` を実行し、worktree ごとに依存パッケージを用意します。main の node_modules とは共有しません。準備コマンドもタイムアウト・停止・ログの管理対象です。追加の準備は停止中に設定ファイルの `setup_commands`（引数配列の配列、シェル展開なし）で指定できます。
+実行には [Codex App Server](https://learn.chatgpt.com/docs/app-server) を使い、必要な権限を自動審査またはダッシュボードの承認ボタンで処理します。詳細は後述の「権限の自動審査と画面での承認」を参照してください。AstroForge では各試行の冒頭にサービス側で `npm ci --ignore-scripts` を実行し、worktree ごとに依存パッケージを用意します。main の node_modules とは共有しません。準備コマンドもタイムアウト・停止・ログの管理対象です。追加の準備は停止中に設定ファイルの `setup_commands`（引数配列の配列、シェル展開なし）で指定できます。
 
 ## Codex / CLI / API
 
@@ -116,7 +116,7 @@ python3 dev-dashboard/tests/smoke_codex.py --codex /absolute/path/to/codex
 
 通常テストは模擬 Codex と本物の Git / HTTP サーバーを使い、認証・Origin制限・容量上限・依存関係・停止・失敗・再試行・再起動復旧・ブランチへの push を検証します。外部ネットワークや本体起動は不要です。実 Codex テストは API の利用枠を消費し、テンポラリディレクトリのみを変更します。
 
-成功判定は Codex の終了コードと構造化された検証結果です。テスト内容の妥当性まで機械的に証明するものではないため、結果・ログ・diff をレビューして統合します。ROS2 デモの変更にはリポジトリの SpaceROS 検証規則を引き継ぎ、環境不足を成功扱いしません。
+成功判定は Codex のターン正常完了と構造化された検証結果です。テスト内容の妥当性まで機械的に証明するものではないため、結果・ログ・diff をレビューして統合します。ROS2 デモの変更にはリポジトリの SpaceROS 検証規則を引き継ぎ、環境不足を成功扱いしません。
 
 ## Ubuntu: `bwrap: loopback: Failed RTM_NEWADDR`
 
@@ -142,3 +142,16 @@ bash dev-dashboard/repair-sandbox.sh
 新しいワーカーの構造化結果には `blocker_reason` と `next_steps` を必須で含めます。過去の結果はエラー・検証結果から案内を組み立て、推定であることを表示します。タスク API の `attention` は要対応時に `{reason, steps, evidence, source}`、それ以外は `null` です。`source` は `reported`（ワーカーの報告）、`system`（実行処理のエラー）、`inferred`（過去の結果からの案内）。この表示処理で保存済みの状態を変更することはありません。
 
 再試行では前回の結果を画面からクリアします。過去の生ログと結果ファイルは `.runtime/logs/` に保持します。
+
+
+## 権限の自動審査と画面での承認
+
+ワーカーは `codex app-server` の stdio JSON-RPC を使用します。`workspace-write` の制限を維持し、`approvalPolicy: on-request` と `approvalsReviewer: auto_review`（Approve for me）で必要な昇格を審査します。Desktop の設定を暗黙に引き継ぐのではなく、タスクごとに指定します。CLI 0.157.1 で検証しています。
+
+自動審査が拒否した場合は操作と理由を報告して要対応になります。「承認を自分で確認して再試行」を押すと、保持した worktree で再開し、次の実行の reviewer を `user` にします。要求が届いたら実行中カードに「承認待ち」、詳細に理由・コマンド・作業場所・要求権限またはファイル差分と「承認して続ける」「許可しない」を表示します。通常の「対応後に再試行」は自動審査です。ターミナルでテストを代行する必要はありません。
+
+承認は認証済み API `POST /api/tasks/{id}/approval` に `{ "id": "承認ID", "decision": "accept" }` または `decline` を送っても処理できます。権限要求は要求された範囲だけをそのターンに許可します。コマンド・ファイル操作には一回の accept を使い、永続ルールやセッション全体の許可は作りません。拒否・解決・キャンセル・再起動・時間切れで承認を無効化し、古い画面からの承認を再利用しません。API の `approvals` は実行中の要求、`approval_reviewer` は `null`（自動審査）または `user` です。承認判断は試行ログに記録します。
+
+自動審査の拒否を黙って回避したり、全権限モードへ切り替えたりはしません。任意の入力質問や MCP 認証フォームなど未対応の要求は承認せず、必要な入力を結果に報告させます。OS 自体のサンドボックス起動不良と、実行中の追加権限は別です。OS 管理者権限が必要な初期セットアップは、このボタンでは代替しません。
+
+仕様: [Codex App Server の承認プロトコル](https://learn.chatgpt.com/docs/app-server#approvals)。実際の wire schema はインストールした CLI の `app-server generate-json-schema` で照合しています。

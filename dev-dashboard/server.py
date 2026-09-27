@@ -19,6 +19,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from task_guidance import attention_for
+from codex_session import CodexSession
 
 ROOT = Path(__file__).resolve().parent
 DEFAULTS = json.loads((ROOT / 'config.example.json').read_text())
@@ -44,6 +45,7 @@ class Queue:
         self.git_lock = threading.Lock()
         self.stopping = threading.Event()
         self.jobs = {}
+        self.sessions = {}
         self.threads = []
         self.db = sqlite3.connect(self.runtime / 'queue.sqlite', check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -53,6 +55,8 @@ class Queue:
             state TEXT NOT NULL, priority INTEGER NOT NULL, dependencies TEXT NOT NULL,
             created REAL NOT NULL, updated REAL NOT NULL, attempt INTEGER NOT NULL DEFAULT 0,
             branch TEXT, worktree TEXT, base_commit TEXT, error TEXT, result TEXT)''')
+        if "approval_reviewer" not in {r[1] for r in self.db.execute("PRAGMA table_info(tasks)")}:
+            self.db.execute("ALTER TABLE tasks ADD COLUMN approval_reviewer TEXT")
         if recover:
             self.db.execute("UPDATE tasks SET state='blocked', error='Service restarted; inspect retained worktree before retry.', updated=? WHERE state='running'", (time.time(),))
         self.db.commit()
@@ -69,12 +73,13 @@ class Queue:
         with self.lock:
             return [self.decode(r) for r in self.db.execute('SELECT * FROM tasks ORDER BY priority DESC, created')]
 
-    @staticmethod
-    def decode(row):
+    def decode(self, row):
         value = dict(row)
         for key in ('dependencies', 'result'):
             value[key] = json.loads(value[key]) if value[key] else ([] if key == 'dependencies' else None)
         value['attention'] = attention_for(value)
+        session = self.sessions.get(value['id'])
+        value['approvals'] = session.approvals() if session else []
         return value
 
     def get(self, task_id):
@@ -137,10 +142,11 @@ class Queue:
                 proc = self.jobs.get(task_id)
                 if proc:
                     self.terminate(proc)
-            elif action == 'retry' and task['state'] in {'blocked', 'cancelled'}:
+            elif action in {'retry', 'retry-with-approval'} and task['state'] in {'blocked', 'cancelled'}:
                 if task_id in self.jobs:
                     raise ValueError('Worker is still stopping; retry shortly')
-                self.update(task_id, state='queued', error=None, result=None)
+                self.update(task_id, state='queued', error=None, result=None,
+                            approval_reviewer='user' if action == 'retry-with-approval' else None)
             elif action == 'done' and task['state'] == 'review':
                 # Dependencies must include the actual merged work, not just a checked box.
                 with self.git_lock:
@@ -219,26 +225,26 @@ which command/check, in which worktree/environment, or exactly what decision/inp
 Do not merely say 'please check' or 'retry'. Distinguish environment limits from code failures.
 For ready results use an empty blocker_reason and empty next_steps.
 For ROS2/demo changes the repository's SpaceROS verification requirements apply.
-This is noninteractive: report missing information/permissions as blocked.
+Permissions: request escalation through Codex tools when sandbox restrictions block necessary checks.
+Approvals are reviewed automatically or shown in the dashboard; do not ask the user to run terminal commands.
+If automatic review denies an operation, explain the exact operation and reason in blocker_reason.
+The user can select manual approval on retry in the dashboard. Never bypass a denied operation.
+Report genuinely missing user information as blocked.
 Do not use other Codex tasks, agents, or external messaging services.
 Task: {task['title']}
 
 {task['prompt']}
 '''
-            args = [self.config['codex'], 'exec', '--sandbox', 'workspace-write',
-                    '-c', 'approval_policy="never"', '--json', '--color', 'never',
-                    '-C', str(worktree), '--output-schema', str(ROOT / 'result.schema.json'),
-                    '-o', str(result_file), '-']
             deadline = time.monotonic() + self.config['timeout_minutes'] * 60
             # Run in the same service context as the worker, before spending model tokens.
             # Desktop-launched probes can inherit an AppArmor profile unavailable to systemd.
             preflight = [self.config['codex'], 'sandbox', '-P', ':workspace',
                          '-C', str(worktree), '--', '/usr/bin/true']
-            commands = [(preflight, '')] + [(setup, '') for setup in self.config['setup_commands']] + [(args, prompt)]
+            commands = [(preflight, '')] + [(setup, '') for setup in self.config['setup_commands']]
             with prefix.with_suffix('.jsonl').open('w') as log:
                 for argv, input_text in commands:
                     log.write(json.dumps({'type': 'dashboard.command', 'command': argv[0],
-                                          'phase': 'sandbox-preflight' if argv is preflight else ('codex' if argv is args else 'setup')}) + '\n')
+                                          'phase': 'sandbox-preflight' if argv is preflight else 'setup'}) + '\n')
                     log.flush()
                     with self.lock:
                         if self.get(task_id)['state'] != 'running' or self.stopping.is_set():
@@ -268,7 +274,9 @@ Task: {task['title']}
                                                    'Inspect the log and run python3 dev-dashboard/manage.py doctor. '
                                                    'On Ubuntu, see repair-sandbox.sh for the official AppArmor repair.')
                             raise RuntimeError(f'{Path(argv[0]).name} exited with code {proc.returncode}; inspect task log')
-            result = json.loads(result_file.read_text())
+                session = CodexSession(self, task, worktree, log, deadline)
+                result = session.run(prompt, json.loads((ROOT / 'result.schema.json').read_text()))
+                result_file.write_text(json.dumps(result, ensure_ascii=False))
             self.update(task_id, result=json.dumps(result))
             if result.get('status') != 'ready' or not result.get('checks'):
                 raise RuntimeError(result.get('blocker_reason') or result.get('summary') or 'Worker did not provide successful check evidence')
@@ -426,7 +434,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, self.queue.settings(self.body()))
             if path == '/api/worktrees' and method == 'GET':
                 return self.reply(200, {'worktrees': self.queue.worktrees()})
-            match = re.fullmatch(r'/api/tasks/([a-f0-9]{12})(?:/(log|cancel|retry|done))?', path)
+            match = re.fullmatch(r'/api/tasks/([a-f0-9]{12})(?:/(log|cancel|retry|retry-with-approval|done|approval))?', path)
             if match:
                 task_id, action = match.groups()
                 task = self.queue.get(task_id)
@@ -434,7 +442,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, task)
                 if method == 'GET' and action == 'log':
                     return self.reply(200, {'log': self.queue.log(task)})
-                if method == 'POST' and action in {'cancel', 'retry', 'done'}:
+                if method == 'POST' and action == 'approval':
+                    data = self.body()
+                    with self.queue.lock:
+                        session = self.queue.sessions.get(task_id)
+                        if not session:
+                            raise ValueError('No live approval request for this task')
+                        session.decide(data.get('id'), data.get('decision'))
+                    return self.reply(200, self.queue.get(task_id))
+                if method == 'POST' and action in {'cancel', 'retry', 'retry-with-approval', 'done'}:
                     self.body()
                     return self.reply(200, self.queue.action(task_id, action))
             return self.reply(404, {'error': 'Not found'})

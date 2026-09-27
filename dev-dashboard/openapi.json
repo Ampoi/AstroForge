@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AstroForge Development Queue",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Private worktree queue. No AstroForge application API dependencies."
   },
   "servers": [
@@ -87,6 +87,38 @@
           },
           "result": {
             "description": "Worker summary/checks; new reports also include blocker_reason and next_steps. Null after retry until new result."
+          },
+          "approval_reviewer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "user",
+              null
+            ],
+            "description": "null uses auto_review; user requests dashboard approval"
+          },
+          "approvals": {
+            "type": "array",
+            "description": "Live, attempt-scoped approval requests; empty after completion or restart",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "params": {
+                  "type": "object"
+                },
+                "item": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -557,6 +589,91 @@
           },
           "409": {
             "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}/approval": {
+      "post": {
+        "summary": "Approve or decline a live Codex request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "decision"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "accept",
+                      "decline"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision sent; updated task"
+          },
+          "400": {
+            "description": "Expired request or invalid decision"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}/retry-with-approval": {
+      "post": {
+        "summary": "Retry retained worktree with user approvals in the dashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued for manual approval"
+          },
+          "400": {
+            "description": "Invalid state"
           }
         }
       }

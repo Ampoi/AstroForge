@@ -29,9 +29,11 @@ function render() {
     if(!list.length) column.append(el('div',state==='queued'?'次のアイデアを待っています':state==='done'?'統合を確認したタスクがここに並びます':'タスクはありません','empty'));
     for(const task of list) {
       const card=el('button',undefined,'card'); card.onclick=()=>openDetail(task.id).catch(error);
-      const top=el('div',undefined,'card-top'); top.append(el('span',labels[task.state],'badge '+task.state),el('span',task.priority>0?'優先度 高':task.priority<0?'優先度 低':'通常','priority'));
+      const top=el('div',undefined,'card-top'); top.append(el('span',task.approvals?.length?'承認待ち':labels[task.state],'badge '+task.state),el('span',task.priority>0?'優先度 高':task.priority<0?'優先度 低':'通常','priority'));
       card.append(top,el('h3',task.title));
-      if(task.attention) {
+      if(task.approvals?.length) {
+        card.append(el('p',task.approvals[0].params.reason || '実行内容を確認して承認してください。','card-summary'),el('strong','承認内容を開く →'));
+      } else if(task.attention) {
         const note=el('div',undefined,'card-attention');
         note.append(el('strong','止まっている理由'),el('p',task.attention.reason),el('strong','次に必要な対応'),el('p',task.attention.steps[0]),el('span','詳細と対応手順を開く →','attention-link'));
         card.append(note);
@@ -74,6 +76,22 @@ async function updateDetail() {
   if(task.error) {const details=el('details');details.append(el('summary','エラー詳細（原文）'),el('pre',task.error,'failure'));$('#detail-result').append(details);}
   const actions=$('#detail-actions'); actions.replaceChildren();
   const act=async action=>{await api('/tasks/'+task.id+'/'+action,'POST',{}); await refresh();};
+  for(const approval of task.approvals || []) {
+    const box=el('section',undefined,'approval-box'); const p=approval.params;
+    box.append(el('h3','承認が必要です'),el('p',p.reason || '以下の操作を進めるために許可が必要です。'));
+    if(p.command) box.append(el('h4',p.kind==='stdin'?'実行中コマンドへの入力':'実行するコマンド'),el('pre',p.command));
+    if(p.cwd) box.append(el('p','作業場所'),el('code',p.cwd));
+    if(p.networkApprovalContext) box.append(el('h4','接続先'),el('pre',JSON.stringify(p.networkApprovalContext,null,2)));
+    if(p.permissions || p.additionalPermissions) box.append(el('h4','要求する権限'),el('pre',JSON.stringify(p.permissions || p.additionalPermissions,null,2)));
+    if(p.grantRoot) box.append(el('p','書き込み対象: '+p.grantRoot));
+    if(approval.item.changes) box.append(el('h4','変更内容'),el('pre',JSON.stringify(approval.item.changes,null,2)));
+    box.append(el('p',approval.method==='item/permissions/requestApproval'?'表示した権限を今回の作業中だけ許可します。':'表示した操作を許可して、この作業を続けます。','hint'));
+    const answer=async decision=>{await api('/tasks/'+task.id+'/approval','POST',{id:approval.id,decision});await refresh();};
+    if(!p.availableDecisions || p.availableDecisions.includes('accept')) box.append(button('承認して続ける',()=>answer('accept')));
+    box.append(button('許可しない',()=>answer('decline')));actions.append(box);
+  }
+  if(task.state==='running') actions.append(el('p',task.approval_reviewer==='user'?'必要な操作はこの画面で承認できます。':'Approve for me · 必要な権限を自動審査して進めます。','hint'));
+  if(task.state==='blocked') actions.append(button('承認を自分で確認して再試行',()=>act('retry-with-approval')),el('p','自動審査で停止した場合も、再試行中に要求される操作をこの画面で確認・承認できます。','hint'));
   if(task.state==='blocked') actions.append(button('対応後に再試行',()=>act('retry')),el('p','変更は保持されます。原因が残ったままでは、再び要対応になる場合があります。','hint'));
   if(['queued','running','blocked'].includes(task.state)) actions.append(button(task.state==='blocked'?'このタスクをキャンセル':'作業を停止',()=>act('cancel')));
   if(task.state==='cancelled') actions.append(button('保持した worktree で再開',()=>act('retry')));

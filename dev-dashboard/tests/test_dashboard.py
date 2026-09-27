@@ -37,17 +37,37 @@ if args[1] == 'sandbox':
         print('bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted', flush=True)
         sys.exit(9)
     sys.exit(0)
-prompt=sys.stdin.read()
-print(json.dumps({'type':'thread.started'}), flush=True)
-if 'SLOW_TEST' in prompt: time.sleep(30)
-if 'FAIL_TEST' in prompt: sys.exit(3)
-pathlib.Path('change.txt').write_text('completed')
-result={'status':'ready','summary':'Implemented test change','checks':['fixture check passed'], 'blocker_reason':'', 'next_steps':[]}
-if 'BLOCK_TEST' in prompt:
-    result.update(status='blocked', blocker_reason='Required fixture input missing', next_steps=['Supply fixture input then retry'])
-if 'CONTRADICT_TEST' in prompt:
-    result.update(blocker_reason='Unresolved test failure', next_steps=['Fix failing test'])
-pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
+def emit(message): print(json.dumps(message), flush=True)
+for line in sys.stdin:
+    m=json.loads(line)
+    if m.get('method') == 'initialize': emit({'id':m['id'],'result':{}})
+    if m.get('method') == 'thread/start':
+        assert m['params']['sandbox']=='workspace-write'
+        assert m['params']['approvalPolicy']=='on-request'
+        pathlib.Path('reviewer.txt').write_text(m['params']['approvalsReviewer'])
+        emit({'id':m['id'],'result':{'thread':{'id':'fixture'},'sandbox':{'type':'workspaceWrite'},'approvalPolicy':'on-request','approvalsReviewer':m['params']['approvalsReviewer']}})
+        emit({'method':'thread.started','params':{}})
+    if m.get('method') != 'turn/start': continue
+    emit({'id':m['id'],'result':{'turn':{'id':'turn'}}})
+    prompt=m['params']['input'][0]['text']
+    if 'SLOW_TEST' in prompt: time.sleep(30)
+    if 'FAIL_TEST' in prompt: sys.exit(3)
+    result={'status':'ready','summary':'Implemented test change','checks':['fixture check passed'], 'blocker_reason':'', 'next_steps':[]}
+    if 'APPROVAL_TEST' in prompt:
+        method='item/permissions/requestApproval' if 'PERMISSION_TEST' in prompt else 'item/commandExecution/requestApproval'
+        emit({'id':42,'method':method,'params':{'threadId':'fixture','turnId':'turn','itemId':'cmd','command':'echo approved','cwd':str(pathlib.Path.cwd()),'reason':'Fixture approval','permissions':{'network':{'enabled':True}}}})
+        response=json.loads(sys.stdin.readline())
+        assert response['id']==42
+        pathlib.Path('decision.json').write_text(json.dumps(response['result']))
+        if response['result'].get('decision')=='decline':
+            result.update(status='blocked', blocker_reason='User declined command', next_steps=['Review denied operation'])
+    if 'BLOCK_TEST' in prompt:
+        result.update(status='blocked', blocker_reason='Required fixture input missing', next_steps=['Supply fixture input then retry'])
+    if 'CONTRADICT_TEST' in prompt:
+        result.update(blocker_reason='Unresolved test failure', next_steps=['Fix failing test'])
+    pathlib.Path('change.txt').write_text('completed')
+    emit({'method':'item/completed','params':{'item':{'id':'result','type':'agentMessage','text':json.dumps(result)}}})
+    emit({'method':'turn/completed','params':{'turn':{'status':'completed'}}})
 ''')
         self.fake.chmod(0o755)
         self.queue = Queue(self.repo, self.root / 'runtime', {'codex':str(self.fake), 'max_workers':2})
@@ -88,6 +108,68 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.assertIsNone(result['attention'])
         self.assertIn('thread.started', self.queue.log(result))
         self.assertEqual(2, len(self.queue.worktrees()))
+
+    def await_approval(self, task):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            current = self.queue.get(task['id'])
+            if current['approvals']:
+                return current['approvals'][0]
+            time.sleep(.05)
+        self.fail('No approval received: ' + str(current))
+
+    def test_approval_accept_and_duplicate_rejected(self):
+        task = self.task('APPROVAL_TEST')
+        self.queue.tick()
+        approval = self.await_approval(task)
+        self.assertEqual('echo approved', approval['params']['command'])
+        with self.queue.lock:
+            session = self.queue.sessions[task['id']]
+            session.decide(approval['id'], 'accept')
+            with self.assertRaises(ValueError):
+                session.decide(approval['id'], 'accept')
+        result = self.await_state(task['id'], {'review'})
+        self.assertEqual([], result['approvals'])
+        self.assertEqual('auto_review', Path(result['worktree'], 'reviewer.txt').read_text())
+
+    def test_decline_then_manual_review_retry(self):
+        task = self.task('APPROVAL_TEST')
+        self.queue.tick()
+        approval = self.await_approval(task)
+        with self.queue.lock:
+            self.queue.sessions[task['id']].decide(approval['id'], 'decline')
+        result = self.await_state(task['id'], {'blocked'})
+        self.assertIn('declined', result['error'])
+        self.assertNotIn(result['branch'], self.git('ls-remote', '--heads', 'origin'))
+        self.queue.action(task['id'], 'retry-with-approval')
+        self.queue.tick()
+        new = self.await_approval(task)
+        with self.queue.lock:
+            session = self.queue.sessions[task['id']]
+            with self.assertRaises(ValueError):
+                session.decide(approval['id'], 'accept')
+            session.decide(new['id'], 'accept')
+        result = self.await_state(task['id'], {'review'})
+        self.assertEqual('user', Path(result['worktree'], 'reviewer.txt').read_text())
+
+    def test_cancel_pending_approval_never_publishes(self):
+        task = self.task('APPROVAL_TEST')
+        self.queue.tick()
+        self.await_approval(task)
+        self.queue.action(task['id'], 'cancel')
+        result = self.await_state(task['id'], {'cancelled'})
+        self.assertEqual([], result['approvals'])
+        self.assertFalse(Path(result['worktree'], 'change.txt').exists())
+
+    def test_permission_grant_is_limited_to_requested_turn(self):
+        task = self.task('APPROVAL_TEST PERMISSION_TEST')
+        self.queue.tick()
+        approval = self.await_approval(task)
+        with self.queue.lock:
+            self.queue.sessions[task['id']].decide(approval['id'], 'accept')
+        result = self.await_state(task['id'], {'review'})
+        decision = json.loads(Path(result['worktree'], 'decision.json').read_text())
+        self.assertEqual({'permissions':{'network':{'enabled':True}},'scope':'turn'}, decision)
 
     def test_atomic_capacity_and_priority(self):
         low = self.task(priority=-10)
@@ -260,6 +342,20 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         task=json.loads(body)
         self.assertEqual(200,req('/api/tasks/'+task['id']+'/cancel','POST',{},auth)[0])
         self.assertEqual('3.1.0', json.loads(req('/api/openapi.json',headers=auth)[1])['openapi'])
+        pending = self.task('APPROVAL_TEST')
+        self.queue.settings({'paused':False})
+        self.queue.tick()
+        approval = self.await_approval(pending)
+        route = '/api/tasks/' + pending['id'] + '/approval'
+        answer = {'id':approval['id'], 'decision':'accept'}
+        self.assertEqual(401, req(route, 'POST', answer)[0])
+        self.assertEqual(403, req(route, 'POST', answer, {**auth,'Origin':'https://evil.invalid'})[0])
+        self.assertEqual(400, req('/api/tasks/'+task['id']+'/approval', 'POST', answer, auth)[0])
+        self.assertEqual(400, req(route, 'POST', {**answer,'decision':'acceptForSession'}, auth)[0])
+        self.assertEqual(200, req(route, 'POST', answer, auth)[0])
+        self.assertEqual(400, req(route, 'POST', answer, auth)[0])
+        self.await_state(pending['id'], {'review'})
+
         self.assertEqual(400,req('/api/settings','PATCH',{'max_workers':99},auth)[0])
         self.assertEqual(404,req('/.runtime/token',headers=auth)[0])
         self.assertEqual(404,req('/../../etc/passwd',headers=auth)[0])

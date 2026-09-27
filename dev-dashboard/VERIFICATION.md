@@ -1,3 +1,13 @@
+## 2026-09-27: approval workflow
+
+- Codex CLI 0.157.1 generated schema verified for `thread/start`, `turn/start`, command/file/permission approval requests and decisions.
+- `python3 -m unittest discover -s dev-dashboard/tests -v`: 24 tests passed. Includes accept/decline, retry with user reviewer, turn-scoped requested permissions, cancellation while awaiting approval, stale/duplicate/cross-task requests, and authenticated HTTP + Origin enforcement.
+- `node --check dev-dashboard/static/app.js`, Python compilation, and `git diff --check`: passed.
+- Real CLI from a systemd user service: `systemd-run --user --wait --pipe --collect --unit=astroforge-approval-smoke --setenv=PATH="$PATH" python3 /home/ampoi/Documents/astroforge/dev-dashboard/tests/smoke_codex.py --codex /home/ampoi/Documents/astroforge/dev-dashboard/.runtime/codex-cli/node_modules/.bin/codex --approval-check`: passed. Effective workspaceWrite/on-request/auto_review verified before starting the turn; arithmetic tests passed; real loopback socket was denied normally, then succeeded after Codex automatic review. Auto-review completion notification and socket success verified in the full log; changes committed/pushed only to disposable local bare remote. Total 62 seconds.
+- First approval smoke run completed successfully but the test assertion used the wrong notification name (`guardianApprovalReview`); fixed to generated schema's `item/autoApprovalReview/completed` and reran successfully.
+- Browser verification against disposable fixture: approval-waiting card → reason/command/cwd display → click “承認して続ける” → development-complete state. Real production tasks were not used as test fixtures.
+- Scope limited to dev-dashboard; no application or ROS2 demo changes. Existing task data/worktrees retained; schema migration adds only per-task reviewer preference. Unsupported interactive requests fail closed; no full-access mode or persistent approval rules.
+
 # Verification — 2026-09-27
 
 ## Completion and attention presentation
