@@ -1,0 +1,488 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AstroForge Development Queue",
+    "version": "1.0.0",
+    "description": "Private worktree queue. No AstroForge application API dependencies."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "paths": {
+    "/api/tasks": {
+      "get": {
+        "summary": "List all dashboard tasks",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      },
+      "post": {
+        "summary": "Queue a task for automatic development",
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title",
+                  "prompt"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30000
+                  },
+                  "priority": {
+                    "type": "integer",
+                    "minimum": -100,
+                    "maximum": 100,
+                    "default": 0
+                  },
+                  "dependencies": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Read queue settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Pause dispatch or set concurrency",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "paused": {
+                    "type": "boolean"
+                  },
+                  "max_workers": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/worktrees": {
+      "get": {
+        "summary": "List every registered Git worktree (including external worktrees)",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}": {
+      "get": {
+        "summary": "Read task state, worktree path, errors and result",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{12}$"
+          }
+        }
+      ]
+    },
+    "/api/tasks/{id}/log": {
+      "get": {
+        "summary": "Read the latest 64KB of the current attempt log",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{12}$"
+          }
+        }
+      ]
+    },
+    "/api/tasks/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a queued/running/blocked task and terminate its process group",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{12}$"
+          }
+        }
+      ]
+    },
+    "/api/tasks/{id}/retry": {
+      "post": {
+        "summary": "Retry a blocked/cancelled task, preserving its worktree",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{12}$"
+          }
+        }
+      ]
+    },
+    "/api/tasks/{id}/done": {
+      "post": {
+        "summary": "Mark reviewed task done after verifying its tip is included in remote main",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "id",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{12}$"
+          }
+        }
+      ]
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "Read this API specification",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "401": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "404": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          },
+          "409": {
+            "description": "Invalid input, unauthenticated, not found, or conflicting state"
+          }
+        }
+      }
+    }
+  }
+}
