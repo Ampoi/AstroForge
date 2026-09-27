@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import PartOverlay from "./components/PartOverlay.vue";
+import { partInfoFields } from "./part-info.ts";
 import PartIcon from "./components/PartIcon.vue";
 import { PARTS, isRover } from "../shared/craft.ts";
 import { TIME_SCALES, isDangerousTimeScale } from "../shared/time-scales.ts";
 import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
 const {
+  partInfoSettings, partProjection, copyPartId,
   displayRate,
   renderFps,
   frameRates,
@@ -177,6 +180,9 @@ function closeOnBackdrop(event: MouseEvent) {
           3D表示にはWebGLが必要です。ブラウザのハードウェアアクセラレーションを有効にして再読み込みしてください。
         </p>
       </div>
+      <PartOverlay :parts="flying ? focused?.craft.parts ?? [] : craft.parts" :flight="flying ? focused : null"
+        :projection="partProjection" :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
+        @select="selectPart" @copy="copyPartId" />
       <div class="scene-top">
         <div class="craft-title">
           <span id="scene-eyebrow" class="eyebrow">{{
@@ -400,6 +406,17 @@ function closeOnBackdrop(event: MouseEvent) {
         </svg>
       </div>
       <div class="view-tools">
+        <details class="display-settings part-info-settings">
+          <summary class="icon-button" :class="{active:partInfoSettings.enabled}" aria-label="パーツ情報の表示設定" title="パーツ情報の表示設定">ID</summary>
+          <div class="display-settings-panel">
+            <strong>パーツ情報</strong>
+            <label><input v-model="partInfoSettings.enabled" type="checkbox" /> 全パーツのオーバーレイ</label>
+            <fieldset><legend>表示項目</legend>
+              <label v-for="field in partInfoFields" :key="field.key"><input v-model="partInfoSettings[field.key]" type="checkbox" /> {{ field.label }}</label>
+            </fieldset>
+            <p>パーツを選択すると引き出し線付きでIDとAPI資料を表示します。地球表示では非表示です。</p>
+          </div>
+        </details>
         <details class="display-settings">
           <summary class="icon-button" aria-label="表示設定" title="表示設定">⚙</summary>
           <div class="display-settings-panel">

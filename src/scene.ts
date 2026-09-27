@@ -19,6 +19,7 @@ import {ExhaustEffect, engineGimbal, type ExhaustEmitter, type ExhaustObstacle} 
 import {mergeStaticMeshes} from './static-meshes.ts';
 import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
+import type {PartProjection} from './part-info.ts';
 import {makePylonPart, updatePylonJoint} from './pylon-models.ts';
 
 const materials: Record<string,THREE.MeshStandardMaterial>={};
@@ -137,6 +138,7 @@ export class RocketScene{
   exhaust=new ExhaustEffect(); exhaustTime: number | null=null; exhaustVessel: string | null=null; selectionBox: THREE.BoxHelper | null=null; placement: AssemblyPlacement | null=null;
   currentFlight: FlightSnapshot | null=null; craftSignature: string | null=null;
   frameClock=new FrameClock(); flightMotion=new FlightMotion();
+  showPartInfo=false; onPartProjection?: (projection: PartProjection)=>void;
 
   constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{}){
     this.element=element;this.onSelect=onSelect;this.onPlace=onPlace;this.mode='editor';this.selected=null;this.placing=null;this.groups=new Map();this.showMarkers=false;
@@ -183,7 +185,7 @@ export class RocketScene{
     element.addEventListener('pointerup',e=>{
       const moving=this.moving;
       if(this.placing&&e.button===0){const type=this.placing,placement=this.updatePlacement(e);this.onPlace(type,placement,moving?.id);this.cancelPlacement();}
-      else if(this.down&&Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)<=5&&this.mode==='editor')this.pick(e);
+      else if(this.down&&Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)<=5&&e.button===0&&!this.globe)this.pick(e);
       this.moving=null;this.down=null;this.controls.enabled=true;
       if(element.hasPointerCapture(e.pointerId))element.releasePointerCapture(e.pointerId);
     },{signal:this.listeners.signal});
@@ -217,7 +219,22 @@ export class RocketScene{
     const point=this.rocket.worldToLocal(hit.point.clone()),normal=hit.face!.normal.clone().transformDirection(hit.object.matrixWorld);
     return {id:obj!.userData.partId,point:[point.y,-point.x,point.z],normal:[normal.y,-normal.x,normal.z]};
   }
-  pick(e: MouseEvent){this.onSelect(this.hit(e));}
+  pick(e: MouseEvent){if(this.rocket.visible)this.onSelect(this.hit(e));}
+  projectParts(){
+    if(!this.onPartProjection)return;
+    const width=this.element.clientWidth,height=this.element.clientHeight;
+    const anchors: PartProjection['anchors']=[];
+    if(!this.globe&&this.rocket.visible&&!this.placing&&(this.showPartInfo||this.selected)){
+      this.camera.updateMatrixWorld();this.rocket.updateWorldMatrix(true,true);
+      for(const [id,group] of this.groups){
+        if(!group.visible||(!this.showPartInfo&&id!==this.selected))continue;
+        const point=group.getWorldPosition(new THREE.Vector3()).project(this.camera);
+        if(point.z < -1||point.z > 1||Math.abs(point.x)>1||Math.abs(point.y)>1)continue;
+        anchors.push({id,x:(point.x+1)*width/2,y:(1-point.y)*height/2});
+      }
+    }
+    this.onPartProjection({width,height,anchors});
+  }
   setCraft(craft: Design){
     const oldHeight=this.stats?.height;
     this.craft=toAssembly(craft);this.stats=assemblyStats(craft);this.parts=assemblyLayout(craft);
@@ -482,7 +499,7 @@ export class RocketScene{
     this.controls.dampingFactor=1-Math.pow(.92,delta*60);
     if(this.mode==='flight'){const flight=this.flightMotion.sample(now);if(flight)this.renderFlight(flight,now);}
     this.updateMapTarget();
-    this.controls.update();this.selectionBox?.update();this.renderer.clear();
+    this.controls.update();this.selectionBox?.update();this.projectParts();this.renderer.clear();
     const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}
     if(this.mode==='flight'){

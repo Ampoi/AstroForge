@@ -41,6 +41,7 @@ import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
 import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { RocketScene } from "./scene.ts";
+import { defaultPartInfoSettings, restorePartInfoSettings, type PartProjection } from './part-info.ts';
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
 export const num = (value: number | null | undefined, digits = 0) =>
@@ -76,6 +77,8 @@ export async function api<K extends keyof ApiRoutes>(
   return result as ApiRoutes[K]["output"];
 }
 export function useWorkshop() {
+  const partInfoSettings = ref({ ...defaultPartInfoSettings });
+  const partProjection = shallowRef<PartProjection>({width:0,height:0,anchors:[]});
   const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
@@ -227,7 +230,6 @@ export function useWorkshop() {
     scene?.select(selected.value);
   }
   function selectPart(id: string | null) {
-    if (flying.value) return;
     selected.value = id;
     scene?.select(id);
   }
@@ -357,11 +359,14 @@ export function useWorkshop() {
         visible[0] ??
         vehicles.value.find((v) => v.id === latest.value!.activeVehicleId);
       if (!f) return;
+      if (focusId.value !== f.id) selectPart(null);
       focusId.value = f.id;
+      if (selected.value && !f.craft.parts.some(p => p.id === selected.value)) selectPart(null);
       const signature = JSON.stringify(f.craft);
       if (scene.craftSignature !== signature) {
         scene.setCraft(f.craft);
         scene.craftSignature = signature;
+        scene.select(selected.value);
       }
       name.value = f.craft.name;
       scene.updateFlight(
@@ -504,6 +509,7 @@ export function useWorkshop() {
     scene?.fit();
   }
   function focusVehicle(id: string) {
+    if (focusId.value !== id) selectPart(null);
     focusId.value = id;
     updateScene();
     scene?.fit();
@@ -571,6 +577,14 @@ export function useWorkshop() {
     if (vehicleMenu.value) vehicleMenu.value.open = false;
     craftDialog.value?.showModal();
   }
+  async function copyPartId(id: string) {
+    try { await navigator.clipboard.writeText(id); toast('パーツIDをコピーしました'); }
+    catch { toast('コピーできませんでした。表示されたIDを選択してコピーしてください'); }
+  }
+  watch(partInfoSettings, value => {
+    if (scene) scene.showPartInfo = value.enabled;
+    try { localStorage.setItem('astroforge-part-info', JSON.stringify(value)); } catch {}
+  }, {deep:true});
   function keydown(event: KeyboardEvent) {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -609,7 +623,7 @@ export function useWorkshop() {
     if (
       target.matches("input,textarea,select") ||
       document.querySelector("dialog[open]") ||
-      flying.value
+      (flying.value && event.key !== "Escape")
     )
       return;
     if ((event.metaKey || event.ctrlKey) && event.key === "z") {
@@ -631,6 +645,7 @@ export function useWorkshop() {
     { immediate: true },
   );
   onMounted(() => {
+    try { partInfoSettings.value = restorePartInfoSettings(JSON.parse(localStorage.getItem('astroforge-part-info') ?? 'null')); } catch {}
     try { displayRate.value = frameRate(localStorage.getItem('astroforge-frame-rate')); } catch {}
     try {
       scene = new RocketScene(
@@ -643,6 +658,10 @@ export function useWorkshop() {
         },
       );
       scene.setFrameRate(displayRate.value);
+      scene.showPartInfo = partInfoSettings.value.enabled;
+      scene.onPartProjection = value => {
+        if (value.anchors.length || partProjection.value.anchors.length) partProjection.value = value;
+      };
     } catch (error) {
       sceneError.value = true;
       console.error(error);
@@ -675,6 +694,7 @@ export function useWorkshop() {
     document.body.classList.remove("flight-mode");
   });
   return {
+    partInfoSettings, partProjection, copyPartId,
     displayRate,
     renderFps,
     frameRates,

@@ -90,3 +90,38 @@ body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-colo
 
 #time-scale.dangerous-time-scale,#time-scale option.dangerous-time-scale{color:#ffad66}
 #time-scale option:not(.dangerous-time-scale){color:#dbe5e7}
+
+/* Screen-space callouts follow the rendered part transforms without catching orbit gestures. */
+.part-overlay{position:absolute;z-index:1;inset:0;pointer-events:none;overflow:hidden}
+.part-leaders{position:absolute;width:100%;height:100%;overflow:visible}
+.part-leaders path{fill:none;stroke:#8ecac7;stroke-width:1;opacity:.7}
+.part-leaders circle{fill:#a5ded5;stroke:#11242c;stroke-width:1}
+.part-leaders .selected path{stroke:#ffc39a;stroke-width:1.5;opacity:1}
+.part-leaders .selected circle{fill:#ffc39a}
+.part-callout{position:absolute;pointer-events:auto;border:1px solid #739c9d80;border-radius:5px;background:#0e2029ee;color:#d8e8e9;font-size:10px;overflow:auto;box-shadow:0 3px 16px #0003}
+.part-callout.selected{border-color:#e6aa7c;padding:10px;z-index:1;background:#142630f5}
+.part-callout-select{display:block;width:100%;height:100%;padding:7px 9px;text-align:left;border:0;border-radius:0;background:transparent;color:inherit}
+.part-callout-select:hover{background:#24434f}
+.part-info-row{display:flex;gap:7px;justify-content:space-between;align-items:center;margin:0;min-height:20px;line-height:20px}
+.part-info-row dt{color:#8fadb7;white-space:nowrap;font-size:9px}
+.part-info-row dd{font-family:var(--mono);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.part-callout-heading{display:flex;justify-content:space-between;align-items:center;color:#efb58d;font:9px var(--mono);letter-spacing:1px}
+.part-callout-heading button{font:18px sans-serif;padding:0 4px}
+.part-callout-name{display:block;margin:5px 0;font-size:11px}
+.part-callout-id{display:flex;align-items:start;gap:6px;margin-bottom:5px}
+.part-callout-id code{overflow-wrap:anywhere;user-select:text;flex:1;min-width:0;line-height:16px}
+.part-callout-id button{font-size:9px;padding:2px 4px;border:1px solid #55747c;border-radius:3px;white-space:nowrap}
+.part-api-links{display:flex;flex-direction:column;gap:5px;margin-top:9px;font-size:10px}
+.part-api-links a{color:#99dcd7;text-decoration:underline;text-underline-offset:3px}
+.part-callout-note,.part-stale{font-size:9px;color:#a6b8bb;line-height:1.5;margin-top:8px}
+.part-stale{color:#ffc39a}
+.part-overlay-overflow{position:absolute;bottom:62px;left:12px;color:#b9d1d3;font-size:10px;background:#142630e0;padding:5px 8px;border-radius:3px}
+.part-info-settings .display-settings-panel{bottom:0;right:42px;max-height:calc(100dvh - 150px);overflow:auto}
+.part-info-settings strong{display:block;margin-bottom:14px}
+.part-info-settings fieldset{border:0;border-top:1px solid #435965;padding:12px 0 0}
+.part-info-settings legend{padding-right:8px;color:#9fb4bd}
+.part-info-settings input{accent-color:#e6aa7c;vertical-align:middle;margin-right:5px}
+.part-info-settings .icon-button{font:11px var(--mono)}
+
+.view-tools{z-index:5}
+.scene-top,.build-toolbar,.placement-hint,.scene-bottom,.flight-hud{z-index:2}
