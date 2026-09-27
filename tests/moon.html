@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><title>月面の描画確認</title>
+<style>
+body{margin:0;background:#050a13;color:#dce4ee;font:14px system-ui}nav{position:absolute;left:20px;top:20px;display:flex;gap:12px;align-items:center;padding:12px;background:#142737e8;border-radius:6px}button,select{padding:7px;background:#203b4d;color:white;border:1px solid #547484}#status{position:absolute;bottom:18px;left:20px;white-space:pre-line}canvas{display:block}
+</style>
+<nav><strong>月面・4K描画確認</strong><select id="view"><option value="near">表側</option><option value="far">裏側</option><option value="pole">北極・継ぎ目</option></select><select id="light"><option value="grazing">斜光</option><option value="full">正面光</option><option value="reverse">逆向きの斜光</option></select><label><input id="relief" type="checkbox" checked>地形の陰影</label><button id="checks">描画チェック</button></nav>
+<div id="status">月面画像を読み込み中…</div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {SolarMap} from '../src/solar-map.ts';
+const status=document.querySelector('#status'),earth=new THREE.Texture(),map=new SolarMap(earth,false);
+map.setFocus('moon');map.earthOrbit.visible=false;map.moonOrbit.visible=false;
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.setSize(innerWidth,innerHeight);renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.3;
+document.body.append(renderer.domElement);
+const camera=new THREE.PerspectiveCamera(34,innerWidth/innerHeight,.01,10000);
+const moon=map.bodies.get('moon'),material=moon.material;
+const controls=new OrbitControls(camera,renderer.domElement);controls.enablePan=false;controls.minDistance=map.minDistance();controls.maxDistance=40;
+const sun=map.scene.children.find(object=>object.isDirectionalLight);
+function update(){
+  const view=document.querySelector('#view').value,light=document.querySelector('#light').value;
+  const direction=new THREE.Vector3(...(view==='far'?[0,0,-1]:view==='pole'?[.01,1,0]:[0,0,1]));
+  camera.position.copy(direction.applyQuaternion(moon.quaternion).multiplyScalar(map.fitRadius()*4));
+  camera.up.copy(new THREE.Vector3(...(view==='pole'?[0,0,-1]:[0,1,0])).applyQuaternion(moon.quaternion));
+  controls.target.set(0,0,0);controls.update();
+  const lamp=new THREE.Vector3(...(light==='full'?[0,0,1]:light==='reverse'?[-.9,.2,.38]:[.9,.2,.38]));
+  if(view==='far')lamp.z*=-1;if(view==='pole'){const y=lamp.y;lamp.y=lamp.z;lamp.z=-y;}
+  sun.position.copy(lamp.applyQuaternion(moon.quaternion).multiplyScalar(100));sun.target.position.set(0,0,0);
+  material.normalScale.setScalar(document.querySelector('#relief').checked?1.35:0);
+}
+function check(){
+  if(!map.moonSurface.loaded)throw map.moonSurface.error??Error('Moon images not loaded');
+  const target=new THREE.WebGLRenderTarget(384,384),before=new Uint8Array(384*384*4),after=before.slice();
+  const aspect=camera.aspect,scale=material.normalScale.x;
+  camera.aspect=1;camera.updateProjectionMatrix();renderer.setRenderTarget(target);
+  material.normalScale.setScalar(0);renderer.render(map.scene,camera);renderer.readRenderTargetPixels(target,0,0,384,384,before);
+  material.normalScale.setScalar(1.35);renderer.render(map.scene,camera);renderer.readRenderTargetPixels(target,0,0,384,384,after);
+  material.normalScale.setScalar(scale);renderer.setRenderTarget(null);target.dispose();camera.aspect=aspect;camera.updateProjectionMatrix();
+  let changed=0;for(let i=0;i<before.length;i+=4)if(Math.abs(before[i]-after[i])>3)changed++;
+  const error=renderer.getContext().getError(),shaders=renderer.info.programs.every(p=>p.diagnostics?.runnable!==false);
+  const pass=changed>1000&&error===0&&shaders;
+  status.textContent=`${pass?'PASS':'FAIL'} · 4096 × 2048 color + normal\n陰影が変化した画素: ${changed} · WebGL error: ${error} · Shaders: ${shaders?'OK':'FAILED'}`;
+  document.body.dataset.result=pass?'pass':'fail';
+}
+for(const id of ['view','light','relief'])document.getElementById(id).onchange=update;
+document.querySelector('#checks').onclick=()=>{try{check();}catch(error){status.textContent=`FAIL: ${error.message}`;document.body.dataset.result='fail';}};
+update();await map.moonSurface.ready;document.querySelector('#checks').click();
+renderer.setAnimationLoop(()=>{controls.update();map.render(renderer,camera);});
+window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+window.addEventListener('pagehide',()=>{renderer.setAnimationLoop(null);controls.dispose();map.dispose();earth.dispose();renderer.dispose();});
+</script></html>

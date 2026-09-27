@@ -8,6 +8,7 @@
     "node": ">=22.12"
   },
   "scripts": {
+    "build:moon": "node --import tsx scripts/build-moon.ts",
     "build:weather": "node --import tsx scripts/build-weather.ts",
     "build:physics": "node --import tsx scripts/build-physics.ts",
     "prestart": "npm run build",

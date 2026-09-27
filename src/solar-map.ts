@@ -5,6 +5,7 @@ import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import type {FlightSnapshot} from '../server/types.ts';
 import type {NumericalOrbit} from '../shared/nbody-orbit.ts';
 import {EARTH_RADIUS,SUN_RADIUS,SUN_DISTANCE,MOON_RADIUS,earthPosition,moonRelativePosition,celestialOrbit,bodySpin,lunarOrbitNormal,type CelestialId} from '../shared/solar-system.ts';
+import {moonGeometry,moonSurface} from './moon.ts';
 
 export type MapFocus=CelestialId|`vehicle:${string}`;
 export const MAP_SCALE=10/EARTH_RADIUS;
@@ -32,25 +33,24 @@ function label(text:string,color:string){
   const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),depthTest:false,depthWrite:false}));
   sprite.center.set(.5,-.25);return sprite;
 }
-function surfaceTexture(sun:boolean){
+function sunSurfaceTexture(){
   const width=512,height=256,data=new Uint8Array(width*height*4);
   let seed=713;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
-  const spots=Array.from({length:sun?14:110},()=>({u:random(),v:.12+random()*.76,r:.006+random()*(sun?.015:.045)}));
+  const spots=Array.from({length:14},()=>({u:random(),v:.12+random()*.76,r:.006+random()*.015}));
   const values=new Float32Array(width*height);
-  for(let i=0;i<values.length;i++)values[i]=(sun?.9:.6)+random()*.1;
+  for(let i=0;i<values.length;i++)values[i]=.9+random()*.1;
   // Rasterize only each spot's bounding box, keeping startup work bounded.
   for(const spot of spots){
     const rx=spot.r/Math.cos((spot.v-.5)*Math.PI),extent=1.18;
     for(let y=Math.max(0,Math.floor((spot.v-spot.r*extent)*height));y<Math.min(height,(spot.v+spot.r*extent)*height);y++){
       for(let x=Math.floor((spot.u-rx*extent)*width);x<(spot.u+rx*extent)*width;x++){
         const distance=Math.hypot((x/width-spot.u)/rx,(y/height-spot.v)/spot.r),index=y*width+(x%width+width)%width;
-        if(distance<1)values[index]*=sun?.42:.64+.26*distance;
-        else if(!sun&&distance<extent)values[index]=Math.min(1,values[index]+.12);
+        if(distance<1)values[index]*=.42;
       }
     }
   }
   for(let i=0;i<values.length;i++){
-    data[i*4]=255*values[i];data[i*4+1]=(sun?181:250)*values[i];data[i*4+2]=(sun?72:245)*values[i];data[i*4+3]=255;
+    data[i*4]=255*values[i];data[i*4+1]=181*values[i];data[i*4+2]=72*values[i];data[i*4+3]=255;
   }
   const map=new THREE.DataTexture(data,width,height);map.colorSpace=THREE.SRGBColorSpace;map.wrapS=THREE.RepeatWrapping;
   map.magFilter=THREE.LinearFilter;map.minFilter=THREE.LinearMipmapLinearFilter;map.generateMipmaps=true;map.needsUpdate=true;return map;
@@ -80,7 +80,7 @@ export class SolarMap{
   readonly positions={sun:new THREE.Vector3(),earth:new THREE.Vector3(),moon:new THREE.Vector3()};
   private readonly sunlight=new THREE.DirectionalLight('#fff1d7',2.8);
   private readonly sunTexture:THREE.DataTexture;
-  private readonly moonTexture:THREE.DataTexture;
+  readonly moonSurface=moonSurface();
   private trailPoints:THREE.Vector3[]=[];
   private trailId:string|null=null;
   focus:MapFocus='earth';time=0;
@@ -102,9 +102,9 @@ export class SolarMap{
   }
   constructor(earthMap:THREE.Texture,private readonly showLabels=true){
     this.scene.background=new THREE.Color('#050a13');
-    this.sunTexture=surfaceTexture(true);this.moonTexture=surfaceTexture(false);
+    this.sunTexture=sunSurfaceTexture();
     this.bodies.set('earth',new THREE.Mesh(earthGeometry(),new THREE.MeshStandardMaterial({map:earthMap,roughness:1})));
-    this.bodies.set('moon',new THREE.Mesh(new THREE.SphereGeometry(bodyRadii.moon,64,32),new THREE.MeshStandardMaterial({map:this.moonTexture,roughness:1})));
+    this.bodies.set('moon',new THREE.Mesh(moonGeometry(bodyRadii.moon),this.moonSurface.material));
     this.bodies.set('sun',new THREE.Mesh(new THREE.SphereGeometry(bodyRadii.sun,64,32),new THREE.MeshBasicMaterial({map:this.sunTexture,toneMapped:false})));
     for(const [id,body] of this.bodies){
       this.scene.add(body);
@@ -248,9 +248,9 @@ export class SolarMap{
   dispose(){
     this.worker?.terminate();
     for(const track of this.tracks.values())this.disposeTrack(track);
-    for(const body of this.bodies.values()){body.geometry.dispose();(body.material as THREE.Material).dispose();}
+    for(const [id,body] of this.bodies){body.geometry.dispose();if(id!=='moon')(body.material as THREE.Material).dispose();}
     for(const sprite of [...this.labels.values(),...this.bodyMarkers.values()]){sprite.material.map?.dispose();sprite.material.dispose();}
     for(const path of [this.earthOrbit,this.moonOrbit,this.trail]){path.geometry.dispose();path.material.dispose();}
-    this.sunTexture.dispose();this.moonTexture.dispose();
+    this.sunTexture.dispose();this.moonSurface.dispose();
   }
 }
