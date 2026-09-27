@@ -9,13 +9,15 @@ export function planetTexture(){
   for(let i=0;i<pixels.length;i+=4){pixels[i]=18;pixels[i+1]=49;pixels[i+2]=76;}
   const map=new THREE.DataTexture(pixels,PLANET_MAP_WIDTH,PLANET_MAP_HEIGHT,THREE.RGBAFormat);
   const worker=new Worker(new URL('./terrain-worker.ts',import.meta.url),{type:'module'});
+  let disposed=false,finish:()=>void=()=>{};
   const ready=new Promise<void>((resolve,reject)=>{
-    worker.onmessage=({data})=>{map.image=data;map.needsUpdate=true;worker.terminate();resolve();};
+    finish=resolve;
+    worker.onmessage=({data})=>{if(disposed)return;map.image=data;map.needsUpdate=true;worker.terminate();resolve();};
     worker.onerror=(event)=>{worker.terminate();reject(new Error(event.message));};
   });
   map.colorSpace=THREE.SRGBColorSpace;map.wrapS=THREE.RepeatWrapping;
   map.magFilter=THREE.LinearFilter;map.minFilter=THREE.LinearMipmapLinearFilter;map.generateMipmaps=true;map.needsUpdate=true;
-  return {map,ready,dispose:()=>worker.terminate()};
+  return {map,ready,dispose:()=>{disposed=true;worker.terminate();finish();}};
 }
 function groundTexture(){
   const data=new Uint8Array(128*128*4);let seed=73129;

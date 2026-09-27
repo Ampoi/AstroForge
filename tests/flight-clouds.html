@@ -46,7 +46,7 @@ for(const [width,height] of [[1280,720],[509,717]]){
   marker.position.copy(scene.camera.position).addScaledVector(scene.camera.getWorldDirection(new THREE.Vector3()),1);
   scene.scene.add(marker);draw(true,target);
   const pixel=new Uint8Array(4);renderer.readRenderTargetPixels(target,Math.floor(width/2),Math.floor(height/2),1,1,pixel);
-  results.push(`${pixel[0]>250&&pixel[1]<5&&pixel[2]>250?'PASS':'FAIL'} ${width}×${height}: nearby geometry remains in front of clouds`);
+  results.push(`${pixel[0]>250&&pixel[1]<5&&pixel[2]>250?'PASS':'FAIL'} ${width}×${height}: nearby geometry remains in front of clouds (RGBA ${[...pixel]})`);
   scene.scene.remove(marker);marker.geometry.dispose();marker.material.dispose();
 }
 const error=renderer.getContext().getError();results.push(`${error===0?'PASS':'FAIL'} WebGL error: ${error}`);

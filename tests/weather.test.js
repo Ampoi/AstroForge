@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import * as THREE from 'three';
 import {cloudFormation,weatherAt,landMask,weatherDirection,buildWeatherMap,WEATHER_FACE_SIZE} from '../scripts/weather-model.ts';
-import {weatherTexture} from '../src/weather.ts';
+import {weatherTexture,WEATHER_FACE_SIZE as RENDER_WEATHER_SIZE} from '../src/weather.ts';
 
 const land=JSON.parse(readFileSync(new URL('../public/assets/land.json',import.meta.url),'utf8'));
 const at=(lon,lat,isLand=0)=>weatherAt(lon*Math.PI/180,lat*Math.PI/180,isLand);
@@ -97,7 +97,7 @@ test('weather texture loads once, filters distant regions and disposes its GPU r
   assert.equal(fetch.mock.callCount(),1);
   assert.equal(fetch.mock.calls[0].arguments[0],'/assets/cloud-weather.rgba');
   assert.ok(weather.map.isCubeTexture);assert.equal(weather.map.images.length,6);
-  for(const face of weather.map.images){assert.equal(face.image.width,WEATHER_FACE_SIZE);assert.equal(face.image.height,WEATHER_FACE_SIZE);}
+  for(const face of weather.map.images){assert.equal(face.image.width,RENDER_WEATHER_SIZE);assert.equal(face.image.height,RENDER_WEATHER_SIZE);}
   weather.map.images.forEach((face,i)=>{
     assert.equal(face.image.width,initial[i].width,'GPU storage cannot grow after the first frame');
     assert.equal(face.image.height,initial[i].height);
@@ -114,7 +114,7 @@ test('missing or invalid atlas keeps a valid clear texture and resolves initiali
   for(const response of [new Response(null,{status:404}),new Response(new Uint8Array(12))]){
     fetch.mock.mockImplementation(async()=>response);
     const weather=weatherTexture();await weather.ready;
-    for(const face of weather.map.images){assert.equal(face.image.width,WEATHER_FACE_SIZE);assert.equal(face.image.height,WEATHER_FACE_SIZE);assert.ok(face.image.data.every(value=>value===0));}weather.dispose();
+    for(const face of weather.map.images){assert.equal(face.image.width,RENDER_WEATHER_SIZE);assert.equal(face.image.height,RENDER_WEATHER_SIZE);assert.ok(face.image.data.every(value=>value===0));}weather.dispose();
   }
   assert.equal(warnings.mock.callCount(),2);
 });

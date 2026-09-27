@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><title>Seeded star rendering regression</title>
+<style>body{background:#07101a;color:#eee;font:16px system-ui;padding:24px}pre{white-space:pre-wrap}canvas{border:1px solid #456}</style>
+<h1>Seeded stars: full-resolution GPU rendering</h1><pre id="status">Loading…</pre>
+<script type="module">
+import * as THREE from 'three';
+import {makeStarField} from '../src/stars.ts';
+const renderer=new THREE.WebGLRenderer({antialias:false});renderer.setSize(640,360);document.body.append(renderer.domElement);
+const pixels=new Uint8Array([0,0,0,255]),background=new THREE.DataTexture(pixels,1,1);background.needsUpdate=true;
+const stars=makeStarField(background,{value:new THREE.Matrix3()},{value:640/360},{value:Math.tan(17*Math.PI/180)});
+stars.material.uniforms.resolution.value.set(640,360);
+const scene=new THREE.Scene(),camera=new THREE.OrthographicCamera();scene.add(stars);
+const target=new THREE.WebGLRenderTarget(640,360),result=new Uint8Array(640*360*4),checks=[];
+function draw(){renderer.setRenderTarget(target);renderer.render(scene,camera);renderer.readRenderTargetPixels(target,0,0,640,360,result);return result.slice();}
+function lit(data){let n=0;for(let i=0;i<data.length;i+=4)if(data[i]+data[i+1]+data[i+2]>10)n++;return n;}
+try{
+  const clear=draw(),count=lit(clear);checks.push(`${count>40?'PASS':'FAIL'} visible star cores: ${count} pixels`);
+  const repeat=draw();checks.push(`${clear.every((v,i)=>repeat[i]===v)?'PASS':'FAIL'} same view renders identical pixels`);
+  pixels[3]=0;background.needsUpdate=true;checks.push(`${lit(draw())===0?'PASS':'FAIL'} opaque clouds / planet hide stars`);
+  pixels[3]=128;background.needsUpdate=true;const half=draw();let a=0,b=0;for(let i=0;i<clear.length;i+=4){a+=clear[i];b+=half[i];}
+  checks.push(`${b>a*.4&&b<a*.6?'PASS':'FAIL'} partial sky transmission dims stars (${(b/a).toFixed(3)})`);
+  pixels[3]=255;background.needsUpdate=true;renderer.setRenderTarget(null);renderer.render(scene,camera);
+  checks.push(`${renderer.getContext().getError()===0?'PASS':'FAIL'} WebGL error`);
+}catch(error){checks.push(`FAIL ${error.stack}`);}
+document.querySelector('#status').textContent=checks.join('\n');
+window.addEventListener('pagehide',()=>{stars.geometry.dispose();stars.material.dispose();background.dispose();target.dispose();renderer.dispose();});
+</script></html>

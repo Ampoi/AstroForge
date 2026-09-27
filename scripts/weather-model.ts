@@ -1,8 +1,8 @@
 /** A reproducible synthetic weather snapshot, not a forecast/atmospheric solver.
  * Large-scale moisture, ascent and subsidence gate all three cloud layers.
  * Sources/approximations are documented in docs/rendering.md. */
-import {WEATHER_FACE_SIZE} from '../src/weather.ts';
-export {WEATHER_FACE_SIZE} from '../src/weather.ts';
+import {WEATHER_SOURCE_SIZE as WEATHER_FACE_SIZE} from '../src/texture-detail.ts';
+export {WEATHER_SOURCE_SIZE as WEATHER_FACE_SIZE} from '../src/texture-detail.ts';
 const PI=Math.PI,rad=PI/180;
 const clamp=(v: number)=>Math.max(0,Math.min(1,v));
 const smooth=(a: number,b: number,v: number)=>{const t=clamp((v-a)/(b-a));return t*t*(3-2*t);};
