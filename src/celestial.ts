@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 
-export const EARTH_RADIUS=6371000;
-export const EARTH_SPIN=7.292115e-5;
-export const SUN_RADIUS=696340000;
-export const SUN_DISTANCE=149597870700;
+import {EARTH_RADIUS,EARTH_SPIN,SUN_RADIUS,earthPosition} from '../shared/solar-system.ts';
+export {EARTH_RADIUS,EARTH_SPIN,SUN_RADIUS,SUN_DISTANCE} from '../shared/solar-system.ts';
 
 // Inertial metres -> Earth-fixed Three coordinates (north = -Z, launch zenith = +Y).
 export function earthFixed(position: number[],time: number){
@@ -11,14 +9,12 @@ export function earthFixed(position: number[],time: number){
   return new THREE.Vector3(-s*x+c*y,c*x+s*y,-z);
 }
 
-// A finite celestial sphere at one AU. Its inertial bearing is a scenario choice;
-// this is not a calendar ephemeris or an additional force in the flight integrator.
+// The same scenario ephemeris drives flight lighting, power, sensors and the map.
 export class SunBody{
   readonly radius=SUN_RADIUS/EARTH_RADIUS;
   readonly position=new THREE.Vector3();
-  private readonly inertial=new THREE.Vector3(.3,-.8,.5).normalize().multiplyScalar(SUN_DISTANCE).toArray();
   constructor(){this.update(0);}
-  update(time: number){this.position.copy(earthFixed(this.inertial,time)).divideScalar(EARTH_RADIUS);}
+  update(time: number){this.position.copy(earthFixed(earthPosition(time).map(v=>-v),time)).divideScalar(EARTH_RADIUS);}
   directionFrom(observer: THREE.Vector3){return this.position.clone().sub(observer).normalize();}
   visibilityFrom(observer: THREE.Vector3){
     const distance=observer.length(),direction=this.directionFrom(observer);

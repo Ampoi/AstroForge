@@ -1,12 +1,14 @@
+import {sunDirection} from '../shared/solar-system.ts';
 import type {Simulation} from './physics.ts';
 import {EARTH,atmosphere} from './physics-reference.ts';
 import {norm,sub,cross,dot} from '../shared/math.ts';
-import {SENSOR_TYPES,SUN} from './sensors.ts';
+import {SENSOR_TYPES} from './sensors.ts';
 export interface ThermalState{temperature:number;skinTemperature:number}
 /** Lumped core/skin heat capacities and radiation. Educational coefficients. */
 export function advanceThermals(sim:Simulation,dt:number){
   const air=atmosphere(norm(sim.position)-EARTH.radius),speed=norm(sub(sim.velocity,cross([0,0,EARTH.spin],sim.position)));
-  const sunlit=dot(sim.position,SUN)>=0||norm(cross(sim.position,SUN))>EARTH.radius;
+  const sun=sunDirection(sim.time,sim.position);
+  const sunlit=dot(sim.position,sun)>=0||norm(cross(sim.position,sun))>EARTH.radius;
   for(const p of sim.props.parts){
     const state=sim.thermals[p.id]??={temperature:288.15,skinTemperature:288.15};
     const area=Math.max(.05,p.def.height*(p.def.width??1.25)*2);

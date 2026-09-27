@@ -125,3 +125,9 @@ body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-colo
 
 .view-tools{z-index:5}
 .scene-top,.build-toolbar,.placement-hint,.scene-bottom,.flight-hud{z-index:2}
+
+/* Celestial map controls */
+.orbit-legend{display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:auto;max-width:calc(100% - 48px)}
+.map-focus-label{display:flex;align-items:center;gap:10px;font-size:11px}
+.map-focus-label select{max-width:240px;background:#142937;color:#e0edf1;border:1px solid #456373;border-radius:4px;padding:7px}
+.orbit-keys{display:flex;flex-wrap:wrap;gap:14px}.orbit-legend .celestial-key:before{border-top:2px dashed #79c7ef}.orbit-legend small{color:#9bb1bf;font-size:9px}

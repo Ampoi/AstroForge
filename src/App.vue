@@ -30,7 +30,7 @@ const {
   pendingUdp,
   toastText,
   clock,
-  globe,
+  globe, mapFocus, changeMapFocus, mapPredictionStatus,
   front,
   grid,
   markers,
@@ -378,8 +378,22 @@ function closeOnBackdrop(event: MouseEvent) {
         ← フライトへ戻る
       </button>
       <div id="orbit-legend" class="orbit-legend" :hidden="!globe">
-        <span class="trail-key">実際の飛行軌跡</span
-        ><span class="prediction-key">予測軌道 · 推力・空力なし</span>
+        <label class="map-focus-label">フォーカス
+          <select id="map-focus" :value="mapFocus" @change="changeMapFocus">
+            <optgroup label="天体">
+              <option value="sun">太陽 · 地球の公転軌道</option>
+              <option value="earth">地球</option>
+              <option value="moon">月</option>
+            </optgroup>
+            <optgroup label="機体">
+              <option v-for="v in vehicles.filter(v => v.status !== 'destroyed')" :key="v.id" :value="`vehicle:${v.id}`">{{ v.craft.name }} · {{ phase[v.status] }} · {{ v.id.slice(0, 6) }}</option>
+            </optgroup>
+          </select>
+        </label>
+        <div class="orbit-keys"><span class="celestial-key">天体の公転軌道</span><span class="prediction-key">機体 · 3天体の重力で予測</span></div>
+        <small>天体は円軌道・自転あり / 太陽は系の中心</small>
+        <small aria-live="polite">{{ mapPredictionStatus }}</small>
+        <small>予測は最大30日・推力と空力なし / 天体選択で基準座標を切替</small>
       </div>
       <div
         id="placement-hint"
@@ -493,7 +507,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span id="view-instructions">{{
           flying
             ? globe
-              ? "ドラッグで視点を回転 · スクロールで追跡中の機体を中心に拡大・縮小"
+              ? "ドラッグで視点を回転 · スクロールで選択対象を中心に拡大・縮小"
               : "カメラ操作のみ · 飛行制御はUDPから"
             : "パーツをドラッグして子ごと移動 · 空白をドラッグで回転"
         }}</span
@@ -830,7 +844,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <span>03</span>
         <p>
           <strong>UDPでフライトを制御する</strong
-          >外部クライアントでテレメトリを受信し、制御権を取得して操縦指令を送ります。「マップ」で飛行履歴と予測軌道を確認できます。Mキーでマップと機体追尾を切り替えます。
+          >外部クライアントでテレメトリを受信し、制御権を取得して操縦指令を送ります。「マップ」で太陽・地球・月・各機体へフォーカスを切り替え、公転軌道と3天体の重力による予測軌道を確認できます。Mキーでマップと機体追尾を切り替えます。
         </p>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import type {MapFocus} from './solar-map.ts';
 import {
   computed,
   nextTick,
@@ -103,6 +104,8 @@ export function useWorkshop() {
     // GMT follows the world's elapsed game time, starting at 00:00:00.
     clock = computed(() => new Date((latest.value?.simulationTime ?? 0) * 1000)),
     globe = ref(false),
+    mapFocus = ref<MapFocus>("earth"),
+    mapPredictionStatus = ref("軌道を計算中…"),
     front = ref(false),
     grid = ref(true),
     markers = ref(false);
@@ -361,6 +364,7 @@ export function useWorkshop() {
       if (!f) return;
       if (focusId.value !== f.id) selectPart(null);
       focusId.value = f.id;
+      if(mapFocus.value.startsWith("vehicle:")&&!vehicles.value.some(v=>`vehicle:${v.id}`===mapFocus.value&&v.status!=="destroyed"))setMapFocus("earth");
       if (selected.value && !f.craft.parts.some(p => p.id === selected.value)) selectPart(null);
       const signature = JSON.stringify(f.craft);
       if (scene.craftSignature !== signature) {
@@ -512,6 +516,7 @@ export function useWorkshop() {
     if (focusId.value !== id) selectPart(null);
     focusId.value = id;
     updateScene();
+    setMapFocus(`vehicle:${id}`);
     scene?.fit();
   }
   async function toggleUdp(id: string) {
@@ -541,6 +546,11 @@ export function useWorkshop() {
       target.value = String(latest.value?.timeScale ?? 1);
     }
   }
+  function setMapFocus(value:MapFocus){
+    mapFocus.value=value;
+    scene?.setMapFocus(value);
+  }
+  function changeMapFocus(event:Event){setMapFocus((event.target as HTMLSelectElement).value as MapFocus);}
   function setView(value: boolean) {
     globe.value = value;
     scene?.setView(value);
@@ -682,6 +692,7 @@ export function useWorkshop() {
     };
     fpsTimer = setInterval(() => {
       renderFps.value = scene?.fps ?? 0;
+      mapPredictionStatus.value=scene?.solarMap.predictionStatus??"";
     }, 1000);
     document.addEventListener("keydown", keydown);
   });
@@ -717,7 +728,7 @@ export function useWorkshop() {
     pendingUdp,
     toastText,
     clock,
-    globe,
+    globe, mapFocus, changeMapFocus, mapPredictionStatus,
     front,
     grid,
     markers,

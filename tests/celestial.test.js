@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import {earthPosition} from '../shared/solar-system.ts';
+import {earthFixed} from '../src/celestial.ts';
 import {SunBody,SceneLighting,EARTH_RADIUS,EARTH_SPIN,SUN_DISTANCE} from '../src/celestial.ts';
 
 const close=(a,b,tolerance=1e-9)=>assert.ok(Math.abs(a-b)<tolerance,`${a} != ${b}`);
@@ -11,8 +13,9 @@ test('the finite solar sphere retains its distance and apparent size as Earth ro
   const diameter=2*Math.asin(sun.radius/start.length())*180/Math.PI;
   assert.ok(diameter>.52&&diameter<.54);
   sun.update(Math.PI/EARTH_SPIN);
-  close(sun.position.x,-start.x,1e-7);close(sun.position.y,-start.y,1e-7);close(sun.position.z,start.z,1e-7);
-  sun.update(2*Math.PI/EARTH_SPIN);assert.ok(sun.position.distanceTo(start)<1e-7);
+  const expected=earthFixed(earthPosition(Math.PI/EARTH_SPIN).map(v=>-v),Math.PI/EARTH_SPIN).divideScalar(EARTH_RADIUS);
+  assert.ok(sun.position.distanceTo(expected)<1e-7);
+  close(sun.position.length(),start.length(),1e-7);
 });
 
 test('Earth blocks sunlight at night but allows sunlight above the depressed orbital horizon',()=>{

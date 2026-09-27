@@ -1,3 +1,5 @@
+import {thirdBodyGravity} from '../shared/nbody-orbit.ts';
+import {sunDirection} from '../shared/solar-system.ts';
 import type {Craft, FlightStatus, Actuation, EngineCommand, RcsCommand, FlightCommand, WrenchCommand, WheelCommand, WheelState} from '../shared/types.ts';
 import type {PhysicsKernel, FlightSnapshot} from './types.ts';
 import {randomUUID} from 'node:crypto';
@@ -184,7 +186,7 @@ export class Simulation{
     const requested=norm(rf)+norm(rt)/arm,limit=Math.min(1,rcsMax/(requested||1),this.mono*220*G0/(dt*(requested||1)));
     rf=mul(rf,limit);rt=mul(rt,limit);const rcsUsed=norm(rf)+norm(rt)/arm;
     force=add(force,rf);torque=add(torque,rt);
-    const sun=unit([.3,-.8,.5]);const behind=dot(this.position,sun)<0&&norm(cross(this.position,sun))<EARTH.radius;
+    const sun=sunDirection(this.time,this.position);const behind=dot(this.position,sun)<0&&norm(cross(this.position,sun))<EARTH.radius;
     let watts=0;
     if(!behind)for(const p of this.props.parts.filter(p=>p.type==='solar'))watts+=PARTS.solar.watts*Math.abs(dot(rotate(this.quaternion,[0,-Math.sin(p.angle!),Math.cos(p.angle!)]),sun));
     this.charge=clamp(this.charge+(watts-15-norm(wheel)*.12)*dt/3600,0,this.stats.power);
@@ -234,7 +236,13 @@ export class Simulation{
       this.velocity=cross([0,0,EARTH.spin],this.position);this.quaternion=axisAngle([0,0,1],spin);this.omega=[0,0,EARTH.spin];
       this.acceleration=cross([0,0,EARTH.spin],this.velocity);this.angularAcceleration=[0,0,0];
     }else{
-      const next=this.kernel.integrateInto?.(this,start,dt,a,this.integrationOutput) ?? this.kernel.integrate(this,start,dt,a);
+      // Symmetric perturbation kicks share the map's Sun/Moon force model.
+      // Earth gravity, aerodynamics and attitude remain in the fixed-step kernel.
+      const perturbed=start.slice(),before=thirdBodyGravity(this.position,this.time);
+      for(let i=0;i<3;i++)perturbed[i+3]+=before[i]*dt/2;
+      const next=this.kernel.integrateInto?.(this,perturbed,dt,a,this.integrationOutput) ?? this.kernel.integrate(this,perturbed,dt,a);
+      const after=thirdBodyGravity(next.slice(0,3),this.time+dt);
+      for(let i=0;i<3;i++)next[i+3]+=after[i]*dt/2;
       if(!next.every(Number.isFinite)){this.status='crashed';this.clearCommands();this.event('数値計算を停止しました');return;}
       this.position=next.slice(0,3);this.velocity=next.slice(3,6);this.quaternion=qnorm(next.slice(6,10));this.omega=next.slice(10,13);
       this.acceleration=mul(sub(this.velocity,start.slice(3,6)),1/dt);this.angularAcceleration=mul(sub(this.omega,start.slice(10,13)),1/dt);

@@ -1,3 +1,4 @@
+import {sunDirection} from '../shared/solar-system.ts';
 import type {Simulation} from './physics.ts';
 import type {LayoutPart} from '../shared/types.ts';
 import type {Packet} from './types.ts';
@@ -9,7 +10,6 @@ import {add,sub,mul,dot,norm,unit,rotate,qmul,axisAngle} from '../shared/math.ts
 import {PartIdentity} from './part-identity.ts';
 
 export const SENSOR_TYPES=['lidar2d','lidar3d','camera','startracker'];
-export const SUN=unit([.3,-.8,.5]);
 export function sensorMount(p:LayoutPart){
   const angle=p.angle??0;
   return {framePosition:[0,.16*Math.cos(angle),.16*Math.sin(angle)],frameRotation:qmul(axisAngle([1,0,0],angle),axisAngle([0,0,1],Math.PI/2))};
@@ -61,7 +61,7 @@ export class Sensors{
       const pose=sensorPose(sim,p),metadata={sensorId:sensorName(p.id),partFlightId:this.ids.get(p.id),vessel:sim.craft.name,sessionId,sequence:++this.sequence,coordinateFrame:'ros_sensor',framePosition:pose.framePosition,frameRotation:pose.frameRotation};
       if(p.type==='startracker'){
         const forward=rotate(pose.rotation,[1,0,0]),rate=norm(sim.omega)*180/Math.PI,altitude=norm(pose.origin)-EARTH.radius;
-        let reason=sim.charge<=0?'no_power':altitude<80000?'atmosphere':dot(forward,SUN)>Math.cos(35*Math.PI/180)?'sun_exclusion':rate>5?'slew_rate_exceeded':'tracking';
+        let reason=sim.charge<=0?'no_power':altitude<80000?'atmosphere':dot(forward,sunDirection(sim.time,pose.origin))>Math.cos(35*Math.PI/180)?'sun_exclusion':rate>5?'slew_rate_exceeded':'tracking';
         // Body limb plus a 10 degree half field of view.
         if(reason==='tracking'&&dot(forward,mul(unit(pose.origin),-1))>Math.cos(Math.asin(Math.min(1,EARTH.radius/norm(pose.origin)))+10*Math.PI/180))reason='body_in_fov';
         if(reason==='tracking'&&sceneRays(sim,true,p.id)(pose.origin,forward,10000))reason='occluded';

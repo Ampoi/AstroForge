@@ -1,3 +1,4 @@
+import {SolarMap,type MapFocus} from './solar-map.ts';
 function isStandardMesh(o: THREE.Object3D): o is THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial>{return o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial;}
 import type {Design, Assembly, LayoutPart, PartType, Mode, SurfaceHit, AssemblyPlacement, PlacementOptions} from '../shared/types.ts';
 import type {FlightSnapshot} from '../server/types.ts';
@@ -126,6 +127,7 @@ export class RocketScene{
   mode: Mode='editor'; selected: string | null=null; placing: PartType | null=null;
   groups=new Map<string,THREE.Group>(); showMarkers=false; scene: THREE.Scene;
   camera: THREE.PerspectiveCamera; followCamera: THREE.PerspectiveCamera; globeCamera: THREE.PerspectiveCamera;
+  solarMap: SolarMap;
   lighting: SceneLighting; renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
   controls: OrbitControls; followControls: OrbitControls; globeControls: OrbitControls;
   ground: THREE.Group; editorGround: THREE.Group; launchSite: THREE.Group; grid: THREE.GridHelper;
@@ -146,11 +148,11 @@ export class RocketScene{
     this.camera=new THREE.PerspectiveCamera(34,1,.05,1000000);this.camera.position.set(12,8,15);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.setClearColor(0,0);
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.3;element.appendChild(this.renderer.domElement);
-    this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.globe=false;
+    this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.solarMap=new SolarMap(this.environment.uniforms.earthMap.value);this.globe=false;
     this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=true;this.controls.dampingFactor=.08;this.controls.minDistance=3;this.controls.maxDistance=25000;this.controls.maxPolarAngle=Math.PI*.91;this.controls.target.set(0,4,0);
     this.followCamera=this.camera;this.followControls=this.controls;
-    this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,4000);this.globeCamera.up.set(0,0,-1);
-    this.globeControls=new OrbitControls(this.globeCamera,this.renderer.domElement);this.globeControls.enableDamping=true;this.globeControls.enablePan=false;this.globeControls.minDistance=12;this.globeControls.maxDistance=1500;this.globeControls.enabled=false;
+    this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,3000000);this.globeCamera.up.set(0,0,-1);
+    this.globeControls=new OrbitControls(this.globeCamera,this.renderer.domElement);this.globeControls.enableDamping=true;this.globeControls.enablePan=false;this.globeControls.minDistance=3;this.globeControls.maxDistance=1500000;this.globeControls.enabled=false;
     this.lighting=new SceneLighting(this.scene);
     this.ground=new THREE.Group();this.scene.add(this.ground);
     this.hangar=new VabEnvironment();this.ground.add(this.hangar);
@@ -357,10 +359,11 @@ export class RocketScene{
   }
   fit(front=false){
     if(this.globe){
-      const direction=this.environment.position.clone().normalize().addScaledVector(this.environment.uniforms.sunDirection.value,.65).normalize();
-      const screen=this.element.clientHeight||650,area=Math.max(220,screen-310),fill=Math.min(area/screen,this.camera.aspect*.78);
-      const distance=10.6/Math.sin(Math.atan(Math.tan(this.camera.fov*Math.PI/360)*fill));
-      this.controls.target.copy(this.environment.position).multiplyScalar(10.002);this.camera.position.copy(this.controls.target).add(direction.multiplyScalar(Math.min(130,distance)));this.controls.update();return;
+      this.controls.minDistance=this.solarMap.minDistance();
+      const direction=this.solarMap.fitDirection();
+      const screen=this.element.clientHeight||650,area=Math.max(220,screen-240),fill=Math.min(area/screen,this.camera.aspect*.78);
+      const distance=this.solarMap.fitRadius()/Math.sin(Math.atan(Math.tan(this.camera.fov*Math.PI/360)*fill));
+      this.controls.target.set(0,0,0);this.camera.position.copy(direction.multiplyScalar(Math.min(this.controls.maxDistance,distance)));this.controls.update();return;
     }
     if(this.mode==='editor'){
       const bounds=new THREE.Box3();for(const group of this.groups.values())bounds.expandByObject(group);
@@ -384,16 +387,17 @@ export class RocketScene{
     this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));this.controls.update();
   }
   zoom(factor: number){this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);this.controls.update();}
+  setMapFocus(focus:MapFocus){this.solarMap.setFocus(focus);if(this.globe)this.fit();}
   updateMapTarget(){
     if(!this.globe)return;
-    // Match the map marker and preserve the user's viewing direction and zoom.
-    const target=this.environment.position.clone().multiplyScalar(10.002);
-    this.globeCamera.position.add(target.clone().sub(this.globeControls.target));
-    this.globeControls.target.copy(target);
+    // The map translates objects around a floating origin at the focus. The
+    // camera's offset and zoom remain unchanged as planets and craft move.
+    this.globeControls.target.set(0,0,0);
   }
   updateFlight(f: FlightSnapshot,trail: number[][]){
     if(this.mode!=='flight')return;
     this.currentFlight=f;this.environment.update(f,trail);
+    this.solarMap.updateVehicles([f,...f.debris],f.id,trail);
     this.flightMotion.push(f,performance.now());
     if(document.hidden)this.flightMotion.snap();
     const visibleIds=new Set((f.debris||[]).map(d=>d.id));
@@ -430,6 +434,7 @@ export class RocketScene{
     }
 
     this.environment.updatePose(f);
+    if(this.globe){this.solarMap.updateTime(f.time,[f,...f.debris]);this.solarMap.requestPredictions([f,...f.debris],now);}
     // World ECI -> Three at the rotating launch frame; model y is body x.
     const spin=-7.292115e-5*f.time;
     const frame=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),spin);
@@ -487,7 +492,7 @@ export class RocketScene{
   }
   dispose(){
     this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();
-    this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();
+    this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();this.solarMap.dispose();
     this.terrain.material.map?.dispose();this.lighting.dispose();this.renderer.dispose();this.renderer.domElement.remove();
   }
   setFrameRate(rate: FrameRate){this.frameClock.setRate(rate);}
@@ -500,9 +505,10 @@ export class RocketScene{
     if(this.mode==='flight'){const flight=this.flightMotion.sample(now);if(flight)this.renderFlight(flight,now);}
     this.updateMapTarget();
     this.controls.update();this.selectionBox?.update();this.projectParts();this.renderer.clear();
-    const near=this.globe ? .05 : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
+    const near=this.globe ? Math.max(.005,this.camera.position.length()/100000) : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}
     if(this.mode==='flight'){
+      if(this.globe){this.solarMap.render(this.renderer,this.camera);return;}
       this.lighting.flight(this.environment.sun,this.environment.position,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       this.environment.render(this.renderer,this.camera,this.globe,new THREE.Vector3(0,(this.stats?.height||7)/2,0));
       if(this.globe)return;
