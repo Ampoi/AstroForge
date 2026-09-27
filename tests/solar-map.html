@@ -5,11 +5,11 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {SolarMap} from '../src/solar-map.ts';
-import {planetTexture} from '../src/terrain.ts';
+import {EarthEnvironment} from '../src/environment.ts';
 import {EARTH_RADIUS,EARTH_YEAR,MOON_MONTH,MOON_RADIUS,moonRelativePosition} from '../shared/solar-system.ts';
 import {EARTH_MU,MOON_MU} from '../shared/nbody-orbit.ts';
 import {add,mul,sub,unit,cross} from '../shared/math.ts';
-const texture=planetTexture(),map=new SolarMap(texture.map),renderer=new THREE.WebGLRenderer({antialias:true});
+const environment=new EarthEnvironment(),map=new SolarMap(environment),renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.3;
 document.querySelector('#scene').append(renderer.domElement);
 const camera=new THREE.PerspectiveCamera(34,innerWidth/innerHeight,.01,3000000);camera.up.set(0,0,-1);
@@ -30,7 +30,7 @@ function animate(now){requestAnimationFrame(animate);controls.update();camera.ne
  const paths=[...map.tracks.values()].filter(t=>t.orbit.visible).length;
  document.querySelector('#status').textContent=`Day ${(time/86400).toFixed(2)} · 軌道 ${paths}/2 · ${renderer.info.programs.every(p=>p.diagnostics?.runnable!==false)?'Shaders OK':'SHADER FAILED'}`;
 }
-requestAnimationFrame(animate);await texture.ready;
+requestAnimationFrame(animate);await environment.ready;
 window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
-window.addEventListener('pagehide',()=>{map.dispose();texture.dispose();texture.map.dispose();renderer.dispose();});
+window.addEventListener('pagehide',()=>{map.dispose();environment.dispose();renderer.dispose();});
 </script></html>

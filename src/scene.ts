@@ -148,7 +148,7 @@ export class RocketScene{
     this.camera=new THREE.PerspectiveCamera(34,1,.05,1000000);this.camera.position.set(12,8,15);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.setClearColor(0,0);
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.3;element.appendChild(this.renderer.domElement);
-    this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.solarMap=new SolarMap(this.environment.uniforms.earthMap.value);this.globe=false;
+    this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.solarMap=new SolarMap(this.environment);this.globe=false;
     this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=true;this.controls.dampingFactor=.08;this.controls.minDistance=3;this.controls.maxDistance=25000;this.controls.maxPolarAngle=Math.PI*.91;this.controls.target.set(0,4,0);
     this.followCamera=this.camera;this.followControls=this.controls;
     this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,3000000);this.globeCamera.up.set(0,0,-1);

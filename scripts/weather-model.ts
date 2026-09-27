@@ -42,7 +42,9 @@ export function weatherAt(longitude: number,latitude: number,land: number){
   const broad=noise(wx*4.3+12,wy*4.3-8,wz*4.3+5),meso=noise(wx*22+3,wy*22+11,wz*22-7),fine=noise(wx*67,wy*67,wz*67);
   const detail=noise(wx*149+4,wy*149-6,wz*149+2);
   const cellular=billows(wx*48,wy*48,wz*48);
-  const body=erode(.55*meso+.3*fine+.15*detail,(1-cellular)*.28);
+  // Let a few hundred kilometre systems carry the cloud mass. Fine cells erode
+  // their edges instead of scattering equally strong flecks across the globe.
+  const body=erode(.80*meso+.15*fine+.05*detail,(1-cellular)*.28);
   // Meandering, broken tropical convergence; no painted solid latitude rings.
   const itczLatitude=(5+4*Math.sin(lon*2+.4)+2*Math.sin(lon*5))*rad+(meso-.5)*.15;
   const convergence=gaussian((lat-itczLatitude)/(.055+.04*broad))*smooth(.30,.65,broad);
@@ -75,13 +77,14 @@ export function weatherAt(longitude: number,latitude: number,land: number){
   const ascent=convergence*.95+frontal*1.15+shield*.45;
   const formed=cloudFormation(moisture,ascent,subsidence);
   const coverage=clamp(formed+marine*.75);
-  const lowBody=body*(1-frontal*.65)+frontalBody*frontal*.65;
+  const lowBody=body*(1-frontal*.85)+frontalBody*frontal*.85;
   // The fixed launch site (0°, 0°) starts under scattered fair-weather cumulus.
   // Keep this in the shared weather atlas so ground and orbital views agree;
   // the local 3D field supplies the gaps and individual billows. Fade the
   // regional layer smoothly into the rest of the synthetic weather snapshot.
-  const launchCumulus=region(lon,lat,{lon:0,lat:0},.09,.09)*(.68+.10*meso);
-  const low=Math.max(launchCumulus,smooth(.53-.36*coverage,.78-.38*coverage,lowBody)*smooth(0,.16,coverage));
+  const launchRegion=region(lon,lat,{lon:0,lat:0},.09,.09);
+  const regionalLow=smooth(.53-.36*coverage,.78-.38*coverage,lowBody)*smooth(.08,.4,coverage);
+  const low=regionalLow*(1-launchRegion)+launchRegion*(.34+.08*meso);
   const middle=clamp((frontal*.85+shield*.50+convergence*.20)*formed*smooth(.20,.70,frontalBody));
   const high=clamp((frontal*.45+shield*.75+convergence*.85)*smooth(.18,.68,frontalBody)*(1-clamp(subsidence)*.7));
   return [low,middle,high,clamp(.35+convergence*.65-marine*.5)];

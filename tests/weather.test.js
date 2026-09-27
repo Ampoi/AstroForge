@@ -35,10 +35,24 @@ test('the launch region has scattered low clouds without covering the global cle
   // A ground-level horizon reaches neighbouring weather texels, not just (0,0).
   for(const land of [0,1])for(const lon of [-1,0,1])for(const lat of [-1,0,1]){
     const [low,middle,high]=at(lon,lat,land);
-    assert.ok(low>.6&&low<.85,`launch cumulus at ${lon},${lat}: ${low}`);
+    assert.ok(low>.30&&low<.45,`launch cumulus at ${lon},${lat}: ${low}`);
     assert.ok(middle<.1&&high<.1,'launch sky should not be a multilayer overcast');
   }
   assert.ok(fraction(at(-40,27))<.3,'the subtropical clear region must stay clear');
+});
+
+test('low clouds form regional banks with clear gaps instead of isolated global flecks',()=>{
+  let weight=0,coverage=0,variation=0,cores=0,connected=0;
+  // An area-weighted global ocean sample isolates weather structure from the
+  // land mask. Compare adjacent longitudes (~100 km at the equator).
+  for(let lat=-80;lat<=80;lat+=2)for(let lon=-180;lon<180;lon+=2){
+    const a=at(lon,lat)[0],b=at(lon+1,lat)[0],w=Math.cos(lat*Math.PI/180);
+    weight+=w;coverage+=w*a;variation+=w*Math.abs(a-b);
+    if(a>.65){cores++;connected+=b>.45;}
+  }
+  assert.ok(coverage/weight>.15&&coverage/weight<.28,'retain cloud banks and broad clear sky');
+  assert.ok(variation/weight<.12,'small-scale variations must not dominate the weather map');
+  assert.ok(cores>1000&&connected/cores>.84,'dense cloud cores should belong to coherent banks');
 });
 
 test('cube directions join across edges and put the polar caps on the correct faces',()=>{

@@ -38,7 +38,7 @@ for(const [width,height] of [[1280,720],[509,717]]){
     const start=altitude?0:Math.floor(height*.88)*width*4;
     let visible=0;
     for(let i=start;i<cloudy.length;i+=4)if(Math.abs(cloudy[i]-clear[i])+Math.abs(cloudy[i+1]-clear[i+1])+Math.abs(cloudy[i+2]-clear[i+2])>35)visible++;
-    const fraction=visible/((cloudy.length-start)/4),ok=fraction>.05;
+    const fraction=visible/((cloudy.length-start)/4),ok=fraction>.05&&(altitude!==0||fraction<.9);
     results.push(`${ok?'PASS':'FAIL'} ${width}×${height}, altitude ${altitude} m: visible clouds ${(fraction*100).toFixed(1)}%${altitude?' of frame':' of sky'}`);
   }
   // A nearby object must stay visible even when clouds occlude the terrain.
@@ -51,6 +51,10 @@ for(const [width,height] of [[1280,720],[509,717]]){
 }
 const error=renderer.getContext().getError();results.push(`${error===0?'PASS':'FAIL'} WebGL error: ${error}`);
 scene.resize();pose(0);draw(true,null);
+// Capture synchronously; a headless screenshot may run after WebGL has cleared
+// the default drawing buffer. Keep the last verified view available for review.
+const preview=document.createElement('canvas');preview.width=renderer.domElement.width;preview.height=renderer.domElement.height;
+preview.getContext('2d').drawImage(renderer.domElement,0,0);renderer.domElement.replaceWith(preview);
 document.querySelector('#status').textContent=results.join('\n');
 window.addEventListener('pagehide',()=>{target.dispose();empty.dispose();scene.dispose();});
 </script></html>

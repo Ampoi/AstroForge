@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {PerspectiveCamera, Vector3} from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {SolarMap,mapVector} from '../src/solar-map.ts';
-import {Texture} from 'three';
 import {RocketScene} from '../src/scene.ts';
 
 function mapScene(){
@@ -11,7 +10,7 @@ function mapScene(){
   element.style={};element.getRootNode=()=>element;element.clientHeight=800;
   const camera=new PerspectiveCamera(34,1.5,.05,4000);camera.up.set(0,0,-1);
   const controls=new OrbitControls(camera,element);controls.minDistance=12;controls.maxDistance=1500;
-  const solarMap=new SolarMap(new Texture(),false);
+  const solarMap=new SolarMap({renderMap(){}},false);
   solarMap.updateVehicles([{id:'a',position:[6371000,0,0],velocity:[0,7800,0],status:'flying',craft:{name:'A'}}],'a');solarMap.setFocus('vehicle:a');
   const scene=Object.assign(Object.create(RocketScene.prototype),{
     globe:true,element,camera,controls,globeCamera:camera,globeControls:controls,solarMap,
@@ -80,7 +79,7 @@ test('all bodies and multiple craft can be focused with a stable floating origin
 });
 
 test('Moon keeps the same face towards Earth and Earth texture spins in the inertial map',()=>{
-  const map=new SolarMap(new Texture(),false);
+  const map=new SolarMap({renderMap(){}},false);
   for(const time of [0,86400,86400*10]){
     map.updateTime(time);
     const moon=map.bodies.get('moon'),earth=map.bodies.get('earth');

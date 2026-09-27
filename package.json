@@ -18,6 +18,7 @@
     "start": "node --import tsx server/index.ts",
     "dev": "node --import tsx --watch server/index.ts --dev",
     "test": "node --import tsx --test tests/*.test.js",
+    "test:clouds": "node --import tsx scripts/check-clouds.ts",
     "benchmark": "node --import tsx tests/benchmark.js",
     "benchmark:physics": "node --import tsx scripts/benchmark-physics.ts",
     "demo": "node --import tsx examples/demo.ts",

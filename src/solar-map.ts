@@ -4,6 +4,7 @@ import {LineGeometry} from 'three/addons/lines/LineGeometry.js';
 import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import type {FlightSnapshot} from '../server/types.ts';
 import type {NumericalOrbit} from '../shared/nbody-orbit.ts';
+import type {EarthEnvironment} from './environment.ts';
 import {EARTH_RADIUS,SUN_RADIUS,SUN_DISTANCE,MOON_RADIUS,earthPosition,moonRelativePosition,celestialOrbit,bodySpin,lunarOrbitNormal,type CelestialId} from '../shared/solar-system.ts';
 
 export type MapFocus=CelestialId|`vehicle:${string}`;
@@ -100,10 +101,12 @@ export class SolarMap{
     this.busy=true;this.requestedAt=now;
     this.worker.postMessage({generation:++this.generation,vehicles:vehicles.filter(v=>v.status==='flying').map(({id,position,velocity,time})=>({id,position,velocity,time}))});
   }
-  constructor(earthMap:THREE.Texture,private readonly showLabels=true){
-    this.scene.background=new THREE.Color('#050a13');
+  constructor(private readonly environment:Pick<EarthEnvironment,'renderMap'>,private readonly showLabels=true){
     this.sunTexture=surfaceTexture(true);this.moonTexture=surfaceTexture(false);
-    this.bodies.set('earth',new THREE.Mesh(earthGeometry(),new THREE.MeshStandardMaterial({map:earthMap,roughness:1})));
+    // Retain the body's transform/radius for focus and occlusion. Its pixels and
+    // depth come from the shared Earth renderer, including clouds/atmosphere.
+    const earth=new THREE.Mesh(earthGeometry(),new THREE.MeshBasicMaterial());earth.visible=false;
+    this.bodies.set('earth',earth);
     this.bodies.set('moon',new THREE.Mesh(new THREE.SphereGeometry(bodyRadii.moon,64,32),new THREE.MeshStandardMaterial({map:this.moonTexture,roughness:1})));
     this.bodies.set('sun',new THREE.Mesh(new THREE.SphereGeometry(bodyRadii.sun,64,32),new THREE.MeshBasicMaterial({map:this.sunTexture,toneMapped:false})));
     for(const [id,body] of this.bodies){
@@ -229,7 +232,12 @@ export class SolarMap{
         (this.focus===`vehicle:${id}`||camera.position.distanceTo(track.marker.position)<2000);}
       track.marker.visible=this.visibleFrom(camera,track.marker.position);
     }
-    renderer.render(this.scene,camera);
+    const autoClear=renderer.autoClear;renderer.autoClear=false;
+    try{
+      renderer.clear();
+      this.environment.renderMap(renderer,camera,this.bodies.get('earth')!.position,this.time);
+      renderer.render(this.scene,camera);
+    }finally{renderer.autoClear=autoClear;}
   }
   private visibleFrom(camera:THREE.Camera,position:THREE.Vector3,own?:CelestialId){
     const ray=new THREE.Ray(camera.position,position.clone().sub(camera.position).normalize()),distance=camera.position.distanceTo(position);

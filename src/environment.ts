@@ -5,7 +5,7 @@ import {LineGeometry} from 'three/addons/lines/LineGeometry.js';
 import {LineMaterial} from 'three/addons/lines/LineMaterial.js';
 import {predictOrbit} from '../shared/orbit.ts';
 
-import {EARTH_RADIUS,earthFixed,SunBody} from './celestial.ts';
+import {EARTH_RADIUS,EARTH_SPIN,earthFixed,SunBody} from './celestial.ts';
 import {cloudNoise,cloudShader,cloudRenderSize} from './clouds.ts';
 import {weatherTexture} from './weather.ts';
 import {planetTexture} from './terrain.ts';
@@ -29,7 +29,9 @@ uniform float globe;
 varying vec2 vUv;
 const float PI=3.14159265359;
 const float ATM=1.01256;
-vec2 sphere(vec3 o,vec3 d,float r){float b=dot(o,d);float c=dot(o,o)-r*r;float h=b*b-c;if(h<0.)return vec2(-1.);h=sqrt(h);return vec2(-b-h,-b+h);}
+// The closest approach avoids subtracting AU-scale squared distances when the
+// solar map focuses the Sun or Moon. The ray direction is always normalized.
+vec2 sphere(vec3 o,vec3 d,float r){float b=dot(o,d);vec3 closest=cross(o,d);float h=r*r-dot(closest,closest);if(h<0.)return vec2(-1.);h=sqrt(h);return vec2(-b-h,-b+h);}
 vec2 uv(vec3 n){return vec2(atan(n.x,n.y)/(2.*PI)+.5,asin(clamp(-n.z,-1.,1.))/PI+.5);}
 ${cloudShader}
 void main(){
@@ -127,6 +129,7 @@ export class EarthEnvironment{
   private readonly stars:ReturnType<typeof makeStarField>;
   private readonly renderSize=new THREE.Vector2();
   private readonly skyTexel=new THREE.Vector2(1,1);
+  private readonly mapCamera=new THREE.PerspectiveCamera();
   scene: THREE.Scene; camera: THREE.OrthographicCamera; ready: Promise<void>;
   uniforms: ReturnType<typeof makeUniforms>; overlay: THREE.Scene;
   trail: THREE.Line<THREE.BufferGeometry,THREE.LineBasicMaterial>; prediction: Line2;
@@ -169,7 +172,8 @@ export class EarthEnvironment{
             gl_FragDepth=mix(mix(a,b,f.x),mix(c,e,f.x),f.y);
           }
           if(globe>.5){
-            float b=dot(observer,d),h=b*b-dot(observer,observer)+1.;
+            vec3 closest=cross(observer,d);
+            float b=dot(observer,d),h=1.-dot(closest,closest);
             if(h>=0.){
               float t=-b-sqrt(h);
               if(t>0.){vec4 clip=viewProjection*vec4(normalize(observer+d*t)*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
@@ -220,7 +224,20 @@ export class EarthEnvironment{
     this.background.dispose();this.weather.dispose();this.planet.dispose();
     this.uniforms.earthMap.value.dispose();this.uniforms.cloudNoise.value.dispose();
   }
-  render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3){
+  /** The solar map uses inertial axes and a floating origin. Transform only the
+   * camera into the rotating Earth frame; the very same weather, shading and
+   * bounded render pass then serve both views. Depth is invariant under this
+   * rigid transform, so other bodies and orbit tracks can use the result. */
+  renderMap(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,earthPosition: THREE.Vector3,time: number){
+    const local=this.mapCamera,rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),EARTH_SPIN*time);
+    local.position.copy(camera.position).sub(earthPosition).applyQuaternion(rotation);
+    local.quaternion.copy(rotation).multiply(camera.quaternion);
+    local.projectionMatrix.copy(camera.projectionMatrix);local.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+    local.fov=camera.fov;local.aspect=camera.aspect;
+    this.sun.update(time);this.uniforms.sunDirection.value.copy(this.sun.position).normalize();
+    this.render(renderer,local,true,new THREE.Vector3(),false);
+  }
+  render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3,showOverlay=true){
     camera.updateMatrixWorld();this.flightCameraPosition.value.copy(camera.position);
     const u=this.uniforms;
     u.observer.value.copy(globe?camera.position.clone().divideScalar(10):this.position.clone().add(camera.position.clone().sub(rocketCenter).divideScalar(EARTH_RADIUS)));
@@ -239,7 +256,7 @@ export class EarthEnvironment{
     this.stars.material.uniforms.resolution.value.copy(this.renderSize);
     this.stars.material.uniforms.pixelRatio.value=Math.min(2,renderer.getPixelRatio());
     renderer.render(this.starScene,this.camera);
-    if(globe){
+    if(globe&&showOverlay){
       const toMarker=this.position.clone().sub(u.observer.value),distance=toMarker.length(),direction=toMarker.normalize();
       const b=u.observer.value.dot(direction),c=u.observer.value.lengthSq()-1,disc=b*b-c,hit=disc>=0?-b-Math.sqrt(disc):-1;
       this.marker.visible=!this.destroyed&&(hit<0||hit>=distance-1e-5);

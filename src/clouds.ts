@@ -111,7 +111,9 @@ vec4 lowClouds(vec3 origin,vec3 direction,float start,float end,out float distan
     if(h>=mix(.40,1.,column.a))continue;
     // Once cells are subpixel the atlas carries their filtered footprint; a
     // 3D detail fetch would only return an average and add no visible shape.
-    vec4 shape=footprint<.003?cloudField(p*12000.,footprint*12000.):vec4(.5,normalize(p)*.5+.5);
+    // Larger billows collect into banks, with open sky between them rather than
+    // many small cotton-like cells. World coordinates keep both views aligned.
+    vec4 shape=footprint<.003?cloudField(p*6000.,footprint*6000.):vec4(.5,normalize(p)*.5+.5);
     float density=lowDensity(coverage,column.a,shape.r,h,footprint);
     if(density<=0.)continue;
     float alpha=1.-exp(-density*ds*4200.);
