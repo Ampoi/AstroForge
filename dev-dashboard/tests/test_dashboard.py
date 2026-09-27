@@ -42,8 +42,11 @@ print(json.dumps({'type':'thread.started'}), flush=True)
 if 'SLOW_TEST' in prompt: time.sleep(30)
 if 'FAIL_TEST' in prompt: sys.exit(3)
 pathlib.Path('change.txt').write_text('completed')
-result={'status':'ready','summary':'Implemented test change','checks':['fixture check passed']}
-if 'BLOCK_TEST' in prompt: result['status']='blocked'
+result={'status':'ready','summary':'Implemented test change','checks':['fixture check passed'], 'blocker_reason':'', 'next_steps':[]}
+if 'BLOCK_TEST' in prompt:
+    result.update(status='blocked', blocker_reason='Required fixture input missing', next_steps=['Supply fixture input then retry'])
+if 'CONTRADICT_TEST' in prompt:
+    result.update(blocker_reason='Unresolved test failure', next_steps=['Fix failing test'])
 pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
 ''')
         self.fake.chmod(0o755)
@@ -82,6 +85,7 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.assertEqual(self.git('branch', '--show-current'), 'main')
         self.assertIn(result['branch'], self.git('ls-remote', '--heads', 'origin'))
         self.assertIn('fixture check passed', result['result']['checks'])
+        self.assertIsNone(result['attention'])
         self.assertIn('thread.started', self.queue.log(result))
         self.assertEqual(2, len(self.queue.worktrees()))
 
@@ -107,6 +111,8 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.git('merge', '--ff-only', finished['branch'])
         self.git('push', 'origin', 'main')
         self.queue.action(first['id'], 'done')
+        self.assertEqual('done', self.queue.get(first['id'])['state'])
+        self.assertIsNone(self.queue.get(first['id'])['attention'])
         self.assertEqual(second['id'], self.queue.claim()['id'])
 
     def test_failure_and_retry_preserve_worktree(self):
@@ -141,6 +147,18 @@ pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps(result))
         self.queue.tick()
         blocked = self.await_state(task['id'], {'blocked'})
         self.assertNotIn(blocked['branch'], self.git('ls-remote', '--heads', 'origin'))
+        self.assertEqual('Required fixture input missing', blocked['attention']['reason'])
+        self.assertEqual(['Supply fixture input then retry'], blocked['attention']['steps'])
+        queued = self.queue.action(task['id'], 'retry')
+        self.assertIsNone(queued['result'])
+        self.assertIsNone(queued['attention'])
+
+    def test_ready_with_unresolved_blockers_never_publishes(self):
+        task = self.task('CONTRADICT_TEST')
+        self.queue.tick()
+        result = self.await_state(task['id'], {'blocked'})
+        self.assertIn('unresolved blockers', result['error'])
+        self.assertNotIn(result['branch'], self.git('ls-remote', '--heads', 'origin'))
 
     def test_pause_and_restart_recovery(self):
         task = self.task()

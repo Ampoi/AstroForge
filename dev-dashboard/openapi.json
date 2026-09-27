@@ -21,6 +21,75 @@
         "type": "http",
         "scheme": "bearer"
       }
+    },
+    "schemas": {
+      "TaskAttention": {
+        "type": "object",
+        "required": [
+          "reason",
+          "steps",
+          "evidence",
+          "source"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "system",
+              "inferred"
+            ]
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "review",
+              "blocked",
+              "done",
+              "cancelled"
+            ],
+            "description": "review: development/checks complete, awaiting manual review/merge; done: merge verified; blocked: see attention"
+          },
+          "attention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskAttention"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "description": "Worker summary/checks; new reports also include blocker_reason and next_steps. Null after retry until new result."
+          }
+        }
+      }
     }
   },
   "paths": {
@@ -33,7 +102,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -234,7 +311,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/Task"
                 }
               }
             }

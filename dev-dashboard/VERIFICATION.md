@@ -1,5 +1,15 @@
 # Verification — 2026-09-27
 
+## Completion and attention presentation
+
+- Separated `review` (development/checks complete, awaiting review), `done` (merge verified), `blocked` and `cancelled` into distinct board columns. Added a completed-task count.
+- Added reason, concrete next steps and unfinished-check evidence to task API responses and cards/details. Existing moon/cloud reports remain blocked because their full tests and visual checks were not completed; no success or merge state was fabricated.
+- Future worker reports require `blocker_reason` and `next_steps`. Contradictory ready-with-blockers reports cannot publish. Retrying clears stale results; historical result files remain on disk.
+- Full dashboard suite: 20 tests passed (8.509s). After excluding successful “失敗0” lines from unfinished-check evidence, the 6 guidance tests passed again. JavaScript syntax, Python compilation and diff checks passed.
+- Verified the live Tailscale UI: six separate columns including completion, and the moon detail panel showing `npm test`, browser verification, the actual missing checks, and retry/cancel controls. Unchanged polling no longer replaces task cards or detail controls.
+- The user subsequently applied the OS prerequisite repair described below; the service sandbox probe passed and workers executed repository commands. Their remaining verification limitations are accurately displayed by this change.
+
+
 ## Service sandbox correction
 
 The initial real-Codex smoke test ran from the desktop tool environment. It did **not** validate the AppArmor context of the systemd user service. Actual queued work later failed before any repository command with `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.

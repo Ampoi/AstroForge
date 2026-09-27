@@ -18,6 +18,7 @@ import uuid
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
+from task_guidance import attention_for
 
 ROOT = Path(__file__).resolve().parent
 DEFAULTS = json.loads((ROOT / 'config.example.json').read_text())
@@ -73,6 +74,7 @@ class Queue:
         value = dict(row)
         for key in ('dependencies', 'result'):
             value[key] = json.loads(value[key]) if value[key] else ([] if key == 'dependencies' else None)
+        value['attention'] = attention_for(value)
         return value
 
     def get(self, task_id):
@@ -138,7 +140,7 @@ class Queue:
             elif action == 'retry' and task['state'] in {'blocked', 'cancelled'}:
                 if task_id in self.jobs:
                     raise ValueError('Worker is still stopping; retry shortly')
-                self.update(task_id, state='queued', error=None)
+                self.update(task_id, state='queued', error=None, result=None)
             elif action == 'done' and task['state'] == 'review':
                 # Dependencies must include the actual merged work, not just a checked box.
                 with self.git_lock:
@@ -211,6 +213,11 @@ Implement the user's task, run appropriate checks, and report their exact result
 Do not modify other worktrees or the dashboard runtime. Do not merge into main.
 The queue service handles commit and push after successful checks: leave changes uncommitted.
 If checks cannot run or fail, set status to blocked, never ready. Do not claim unverified success.
+For blocked results, blocker_reason must explain exactly what prevents completion, separately
+from summary (work accomplished). next_steps must contain concrete actions the user can take:
+which command/check, in which worktree/environment, or exactly what decision/input is missing.
+Do not merely say 'please check' or 'retry'. Distinguish environment limits from code failures.
+For ready results use an empty blocker_reason and empty next_steps.
 For ROS2/demo changes the repository's SpaceROS verification requirements apply.
 This is noninteractive: report missing information/permissions as blocked.
 Do not use other Codex tasks, agents, or external messaging services.
@@ -264,7 +271,9 @@ Task: {task['title']}
             result = json.loads(result_file.read_text())
             self.update(task_id, result=json.dumps(result))
             if result.get('status') != 'ready' or not result.get('checks'):
-                raise RuntimeError(result.get('summary') or 'Worker did not provide successful check evidence')
+                raise RuntimeError(result.get('blocker_reason') or result.get('summary') or 'Worker did not provide successful check evidence')
+            if result.get('blocker_reason') or result.get('next_steps'):
+                raise RuntimeError('Worker reported ready with unresolved blockers; inspect result before retry.')
             with self.lock:
                 if self.get(task_id)['state'] != 'running' or self.stopping.is_set():
                     return

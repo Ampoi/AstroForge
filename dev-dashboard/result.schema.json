@@ -1,1 +1,40 @@
-{"type":"object","additionalProperties":false,"properties":{"status":{"type":"string","enum":["ready","blocked"]},"summary":{"type":"string"},"checks":{"type":"array","items":{"type":"string"}}},"required":["status","summary","checks"]}
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocker_reason": {
+      "type": "string",
+      "description": "Specific reason completion is blocked; empty when ready. Separate from summary of achievements."
+    },
+    "next_steps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Concrete user actions to unblock the task; empty when ready."
+    }
+  },
+  "required": [
+    "status",
+    "summary",
+    "checks",
+    "blocker_reason",
+    "next_steps"
+  ]
+}
