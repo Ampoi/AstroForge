@@ -1,0 +1,68 @@
+{
+  "blender": "5.2.1 LTS",
+  "generator": "scripts/build-blender-parts.py",
+  "generatorSha256": "930dc324191697cc2a9db5cd323a870bb5cf948e701d3a8cee475376ffd54f9b",
+  "coordinates": "metres; runtime +Y nose, radial +X outward",
+  "models": {
+    "battery": {
+      "triangles": 33368,
+      "drawCalls": 6,
+      "sha256": "48f8531e950ca68c9afa592bc1ab0eacd3eed4836ea6b81c8af216d23d98ef3b"
+    },
+    "booster_engine": {
+      "triangles": 35656,
+      "drawCalls": 10,
+      "sha256": "35d4709ddfa418fb25def78ba9ecd458a6c365f446949e132a96af416ea29936"
+    },
+    "chassis": {
+      "triangles": 45140,
+      "drawCalls": 6,
+      "sha256": "9538f5a8254b39798f3b77d10f4877765c2d3ee97587964f0e8a7a8fad8a828d"
+    },
+    "decoupler": {
+      "triangles": 24680,
+      "drawCalls": 6,
+      "sha256": "983588e581924c7449f4a4fbf3083ddf066fa4730275c0623d7e20f3b691734c"
+    },
+    "docking": {
+      "triangles": 8460,
+      "drawCalls": 8,
+      "sha256": "1b3d4c95b6f83b4f2106858ef9e37b07ef3cf18cd2c55f8c0dd12f5d57e2fc71"
+    },
+    "engine": {
+      "triangles": 35656,
+      "drawCalls": 9,
+      "sha256": "e7b95d24ec68736352baeba6033606c089d6f4948143629bfcb9d64e31561e6e"
+    },
+    "fin": {
+      "triangles": 7856,
+      "drawCalls": 6,
+      "sha256": "95c3366678e86b70dd719e45d23eda42a03ac4f031ce5fc4b32685646abcc6d9"
+    },
+    "pod": {
+      "triangles": 31224,
+      "drawCalls": 6,
+      "sha256": "33e67c921fe256cc02705a6e0a2f6c41fcaaf30c3869cd4674a78cf13dd54f69"
+    },
+    "rcs": {
+      "triangles": 10472,
+      "drawCalls": 5,
+      "sha256": "4f0f04959081c4b62f671b3e2d3dff9aeab6ef87d98c2fecf2a2f5602dbf0c56"
+    },
+    "solar": {
+      "triangles": 21260,
+      "drawCalls": 9,
+      "sha256": "8855f729c71fe4da9415624ef6a2a57042dea96062655303a0300a7e0ab3a7c7"
+    },
+    "vacuum_engine": {
+      "triangles": 35656,
+      "drawCalls": 11,
+      "sha256": "30ae145ec01d327ca07036354fb29ff0f317a45e89c5de48bff8841e3d429455"
+    },
+    "wheel": {
+      "triangles": 56608,
+      "drawCalls": 18,
+      "sha256": "bcc818060cb1edcadbc32ea1df610122b2f63aa3389b3933e2325bc0e1647485"
+    }
+  }
+}

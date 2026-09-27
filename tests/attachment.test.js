@@ -53,9 +53,19 @@ test('slim flange geometry and pod tip match the advertised interface',()=>{
   const motor=makePart('linear'),bounds=new Box3().setFromObject(motor).getSize(new Vector3());
   assert.ok(Math.abs(bounds.x-SLIM_DIAMETER)<1e-7);assert.ok(Math.abs(bounds.z-SLIM_DIAMETER)<1e-7);
   assert.ok(Math.abs(surfaceRadius('pod',.5)*2-SLIM_DIAMETER)<1e-7);
-  const pod=makePart('pod',false),top=pod.children.find(mesh=>Math.abs(mesh.position.y-.565)<1e-9);
-  assert.equal(top.geometry.parameters.radiusTop,SLIM_DIAMETER/2);
-  assert.ok(Math.abs(top.position.y+top.geometry.parameters.height/2-.625)<1e-7);
+  const pod=makePart('pod'),vertices=[];
+  pod.updateWorldMatrix(true,true);
+  pod.traverse(mesh=>{
+    if(!mesh.geometry)return;
+    const position=mesh.geometry.getAttribute('position');
+    for(let i=0;i<position.count;i++){
+      const v=new Vector3().fromBufferAttribute(position,i).applyMatrix4(mesh.matrixWorld);
+      if(Math.abs(v.y-.625)<1e-6)vertices.push(v);
+    }
+  });
+  assert.ok(vertices.length>20,'native mesh includes the nose mating face');
+  assert.ok(Math.abs(Math.max(...vertices.map(v=>Math.hypot(v.x,v.z)))-SLIM_DIAMETER/2)<1e-6);
+  assert.ok(Math.abs(new Box3().setFromObject(pod).max.y-.625)<1e-6);
 });
 test('guides follow circular and rectangular profiles and retain their standard color',()=>{
   for(const type of ['linear','tank','chassis']){

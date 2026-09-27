@@ -22,13 +22,14 @@ import {FrameClock, type FrameRate} from './display.ts';
 import {FlightMotion} from './flight-motion.ts';
 import type {PartProjection} from './part-info.ts';
 import {makePylonPart, updatePylonJoint} from './pylon-models.ts';
+import {makeBlenderPart} from './blender-models.ts';
 
 const materials: Record<string,THREE.MeshStandardMaterial>={};
 function material(color: THREE.ColorRepresentation,metal=.25,rough=.55){const key=String(color)+metal+rough;return materials[key]??=new THREE.MeshStandardMaterial({color,metalness:metal,roughness:rough});}
 const cyl=(rt: number,rb: number,h: number,color: THREE.ColorRepresentation,metal=.25)=>new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,40),material(color,metal));
 const box=(x: number,y: number,z: number,color: THREE.ColorRepresentation,metal=.2)=>new THREE.Mesh(new THREE.BoxGeometry(x,y,z),material(color,metal));
 function put<T extends THREE.Object3D>(group: THREE.Object3D,mesh: T,x=0,y=0,z=0){mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);return mesh;}
-let tankTexture: THREE.Texture,solarTexture: THREE.Texture;
+let tankTexture: THREE.Texture;
 function makeTankTexture(){
   const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;const ctx=canvas.getContext('2d')!;
   ctx.fillStyle='#d9dfd9';ctx.fillRect(0,0,1024,512);
@@ -38,81 +39,15 @@ function makeTankTexture(){
   for(const x of [135,647]){ctx.fillStyle='#3c535b';ctx.font='600 25px sans-serif';ctx.fillText('ASTROFORGE',x,215);ctx.font='14px monospace';ctx.fillText('FT–1200   /   FLIGHT SYSTEMS',x,245);ctx.fillStyle='#90a19e';ctx.fillRect(x,270,190,2);ctx.font='12px monospace';ctx.fillText('LIQUID PROPELLANT',x,293);}
   const t=new THREE.CanvasTexture(canvas);t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=4;return t;
 }
-function makeSolarTexture(){
-  const c=document.createElement('canvas');c.width=256;c.height=128;const ctx=c.getContext('2d')!;ctx.fillStyle='#102b40';ctx.fillRect(0,0,256,128);
-  for(let x=3;x<256;x+=32)for(let y=3;y<128;y+=32){ctx.fillStyle='#276281';ctx.fillRect(x,y,27,27);ctx.fillStyle='#5592a7';ctx.fillRect(x+1,y+10,25,1);ctx.fillRect(x+1,y+20,25,1);}
-  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
-}
 export function makePart(type: PartType, merge=true){
-  const imported=makePylonPart(type);
+  const imported=makePylonPart(type)??makeBlenderPart(type);
   if(imported)return imported;
   const g=new THREE.Group();
-  if(type==='docking'){
-    put(g,box(.22,.2,.2,PARTS[type].color),.11);
-    const lens=put(g,cyl(.075,.075,.05,'#123c49',.5),.24);lens.rotation.z=Math.PI/2;
-  }else if(type==='chassis'){
-    put(g,box(1.8,4,.45,'#b8c1ac',.55));
-    for(const x of [-.83,.83])put(g,box(.09,3.9,.52,'#526168',.7),x);
-    for(const y of [-1.8,0,1.8])put(g,box(1.7,.08,.48,'#e3a865',.6),0,y);
-    put(g,box(1.4,2.6,.025,'#73847d'),0,0,.24);
-  }else if(type==='wheel'){
-    put(g,box(.15,.25,.2,'#9aa9aa',.7));
-    const suspension=new THREE.Group();suspension.name='suspension';g.add(suspension);
-    suspension.position.set(WHEEL.trackOffset,0,-WHEEL.extension);
-    const steering=new THREE.Group();steering.name='steering';suspension.add(steering);
-    const tire=new THREE.Group();tire.name='tire';steering.add(tire);
-    const rubber=put(tire,cyl(WHEEL.radius,WHEEL.radius,.28,'#283034',.05));rubber.rotation.z=Math.PI/2;
-    const hub=put(tire,cyl(.23,.23,.30,'#b1babc',.8));hub.rotation.z=Math.PI/2;
-    for(let i=0;i<20;i++){const a=i*Math.PI/10,tread=put(tire,box(.3,.09,.035,'#41494b',.05),0,Math.cos(a)*.443,Math.sin(a)*.443);tread.rotation.x=a-Math.PI/2;}
-    const spring=put(g,cyl(.065,.065,1,'#e7b660',.7),.15,0,-WHEEL.extension/2);spring.name='spring';spring.rotation.x=Math.PI/2;spring.scale.y=WHEEL.extension;
-    put(suspension,box(.3,.07,.07,'#92a2a5',.7),-.15);
-    const coilPoints=Array.from({length:129},(_,i)=>{const a=i/128*Math.PI*16;return new THREE.Vector3(Math.cos(a)*.09,i/128-.5,Math.sin(a)*.09);});
-    spring.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(coilPoints),128,.018,6,false),material('#e7b660',.7)));
-  }else if(type==='tank'){
+  if(type==='tank'){
     tankTexture??=makeTankTexture();const m=new THREE.MeshStandardMaterial({map:tankTexture,metalness:.25,roughness:.5});
     put(g,new THREE.Mesh(new THREE.CylinderGeometry(.615,.615,2.33,48),m));
     for(const y of [-1.15,1.15]){put(g,cyl(.636,.636,.07,'#a4b3b2',.7),0,y);put(g,cyl(.625,.625,.025,'#536970',.6),0,y*.95);}
     put(g,box(.065,2.15,.065,'#8d9e9c',.6),.54,0,.27);
-  }else if(type==='pod'){
-    put(g,cyl(SLIM_DIAMETER*.8,.624,1.02,'#dbe5e3',.3),0,-.005);
-    put(g,cyl(.635,.635,.13,'#465b65',.6),0,-.56);
-    put(g,cyl(SLIM_DIAMETER/2,SLIM_DIAMETER*.8,.12,'#d3e0de'),0,.565);
-    const window=put(g,box(.3,.21,.03,'#142d3f',.65),0,-.04,.41);window.rotation.x=.39;
-    const rim=put(g,box(.38,.28,.026,'#5c787f',.65),0,-.04,.39);rim.rotation.x=.39;
-    put(g,box(.018,.13,.031,'#adcad1',.7),0,-.04,.445).rotation.x=.39;
-    const hatch=put(g,cyl(.17,.17,.022,'#a8bab8',.6),-.39,-.15,0);hatch.rotation.z=Math.PI/2+.35;
-  }else if(type==='battery'){
-    put(g,cyl(.62,.62,.25,'#364c58',.6));
-    for(const y of [-.14,.14])put(g,cyl(.633,.633,.04,'#9aaaa8',.65),0,y);
-    for(let i=0;i<12;i++){const a=i*Math.PI/6;const m=put(g,box(.16,.17,.027,i%3===0?'#d99a6b':'#1e3039'),Math.sin(a)*.62,0,Math.cos(a)*.62);m.rotation.y=a;}
-  }else if(type==='decoupler'){
-    put(g,cyl(.64,.64,.18,'#d7a54e',.6));
-    for(const y of [-.09,.09])put(g,cyl(.645,.645,.035,'#52646b',.75),0,y);
-    for(let i=0;i<16;i++){const a=i*Math.PI/8,m=put(g,box(.12,.14,.025,i%2?'#293b43':'#efc46c'),Math.sin(a)*.64,0,Math.cos(a)*.64);m.rotation.y=a;}
-  }else if(isEngine(type)){
-    put(g,cyl(.60,.52,.16,'#77898d',.8),0,.435);
-    const nozzle=new THREE.Group();nozzle.name='engine-gimbal';nozzle.position.y=.24;g.add(nozzle);
-    put(nozzle,cyl(.23,.23,.3,'#394b53',.8),0,-.01);
-    const pts=[[.18,.24],[.15,.13],[.17,.06],[.23,-.10],[.35,-.34],[.46,-.50]].map(([r,y])=>new THREE.Vector2(r,y));
-    const bell=new THREE.Mesh(new THREE.LatheGeometry(pts,40),new THREE.MeshStandardMaterial({color:'#56646c',metalness:.8,roughness:.35,side:THREE.DoubleSide}));put(nozzle,bell,0,-.24);
-    put(nozzle,cyl(.473,.473,.035,'#9ca49a',.8),0,-.74);
-    for(let i=0;i<4;i++){const a=i*Math.PI/2;put(g,cyl(.035,.035,.4,'#c6a889',.7),Math.cos(a)*.35,.2,Math.sin(a)*.35);}
-  }else if(type==='fin'){
-    const shape=new THREE.Shape();shape.moveTo(0,.44);shape.lineTo(.16,.38);shape.lineTo(.93,-.4);shape.lineTo(.93,-.53);shape.lineTo(0,-.43);shape.closePath();
-    const mesh=new THREE.Mesh(new THREE.ExtrudeGeometry(shape,{depth:.055,bevelEnabled:true,bevelThickness:.01,bevelSize:.01,bevelSegments:1,steps:1}),material('#c3d3d5',.55));put(g,mesh,0,0,-.025);
-    put(g,box(.1,.77,.1,'#80969c',.6),.02,-.01,0);
-    const tip=put(g,box(.1,.115,.067,'#e39069'),.88,-.455,0);tip.rotation.z=0;
-  }else if(type==='rcs'){
-    put(g,box(.24,.25,.24,'#e2e2d6',.6),.08,0,0);
-    for(const direction of [[1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
-      const nozzle=cyl(.065,.035,.13,'#555a5d',.8);nozzle.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(...direction));put(g,nozzle,.08+direction[0]*.17,direction[1]*.17,direction[2]*.17);
-    }
-  }else if(type==='solar'){
-    solarTexture??=makeSolarTexture();put(g,box(.25,.065,.065,'#97a6aa',.7),.1,0,0);
-    put(g,box(1.15,.72,.065,'#9daeb1',.7),.76,0,0);
-    const m=new THREE.MeshStandardMaterial({map:solarTexture,metalness:.45,roughness:.32,side:THREE.DoubleSide});
-    put(g,new THREE.Mesh(new THREE.PlaneGeometry(1.09,.66),m),.76,0,.037);
-    const back=put(g,new THREE.Mesh(new THREE.PlaneGeometry(1.09,.66),m),.76,0,-.037);back.rotation.y=Math.PI;
   }
   if(merge)mergeStaticMeshes(g);
   return g;

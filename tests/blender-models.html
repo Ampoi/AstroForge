@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AstroForge · Blender part library</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101b24;color:#dce7eb;font:14px system-ui,sans-serif}header{padding:32px 36px 24px;border-bottom:1px solid #34444e}small{color:#e3ae58;letter-spacing:.18em}h1{margin:10px 0;font-size:30px;font-weight:550}p{color:#a7b8c2;margin:8px 0}nav{display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin-top:22px}label{display:flex;align-items:center;gap:12px}input{accent-color:#e3ae58;width:160px}button,a{background:#273b47;border:1px solid #50646f;color:#dce7eb;border-radius:6px;padding:7px 12px;text-decoration:none;cursor:pointer}main{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding:24px 32px}section{background:#1d2c37;border:1px solid #344651;border-radius:9px;overflow:hidden}section a{padding:0;display:block;border:0;background:none}h2{font-size:17px;margin:18px 18px 3px;font-weight:550}.code{margin:0 18px;color:#9bafba;font:12px monospace}img{width:100%;display:block;aspect-ratio:1.45}.detail{margin:0 18px 18px;min-height:38px;line-height:1.6;font-size:12px}footer{padding:0 34px 24px;color:#8fa5b2}pre{white-space:pre-wrap;font-size:11px}body.solo main{grid-template-columns:1fr;max-width:1200px;margin:auto}body.solo img{aspect-ratio:1.65}@media(max-width:800px){main{grid-template-columns:repeat(2,minmax(0,1fr));padding:14px}header{padding:24px}h1{font-size:25px}}
+</style>
+<header><small>ASTROFORGE / MECHANICAL LIBRARY</small><h1>Blender パーツモデル</h1><p>既存のサイズ・接続位置を保った、編集可能な機械部品。カードを開くと拡大できます。</p>
+<nav><label>視点 <input id="orbit" type="range" min="-180" max="180" value="0"></label><label>可動部 <input id="motion" type="range" min="0" max="1" step=".01" value="0"></label><button id="underside">裏面を見る</button><a href="/tests/blender-models.html">全モデル</a></nav></header>
+<main></main><footer>Blender 5.2.1 · 面取り・締結部・配管・内壁を含むメッシュ · AstroForge 実表示<pre id="result">Loading…</pre></footer>
+<script type="module">
+import * as THREE from 'three';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {makePart} from '../src/scene.ts';
+import {PARTS,WHEEL} from '../shared/craft.ts';
+import {engineGimbal} from '../src/exhaust.ts';
+const details={docking:'捕獲リング / 3点ラッチ / カメラ / ハーネス',pod:'窓枠 / 気密ハッチ / パネル継ぎ目 / 耐熱基部',engine:'開口ベル / 冷却管 / ターボポンプ / ジンバル',booster_engine:'太いスロート / 銅色冷却系 / 推力支持架',vacuum_engine:'高膨張ベル / 冷却マニホールド / 青灰色金属',decoupler:'中空リング / 解放クランプ / 分離面 / 導管',fin:'翼面パネル / 前縁補強 / 付け根スパー / 翼端',battery:'セルモジュール / 冷却スリット / 電源端子',chassis:'箱形レール / 機器ベイ / 点検蓋 / 裏面補強',rcs:'5方向の中空ノズル / バルブブロック / 供給管',wheel:'トレッド / ビードロック / ハブ / コイルばね',solar:'独立セル / 集電線 / フレーム / ヒンジ / 配線'};
+const only=new URLSearchParams(location.search).get('type');if(only)document.body.classList.add('solo');
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setSize(only?1400:680,only?850:470);renderer.setClearColor('#1d2c37');renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+const pmrem=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment(),env=pmrem.fromScene(room,.04);room.dispose();pmrem.dispose();
+let underside=false;
+const views=[];
+for(const type of Object.keys(details).filter(type=>!only||type===only)){
+  const section=document.createElement('section');section.innerHTML=`<h2>${PARTS[type].name}</h2><div class="code">${PARTS[type].label}</div><a href="?type=${type}" aria-label="${PARTS[type].name}を拡大"><img alt="${PARTS[type].name}の3Dモデル"></a><p class="detail">${details[type]}</p>`;document.querySelector('main').append(section);
+  const scene=new THREE.Scene(),part=makePart(type);scene.add(part);scene.environment=env.texture;scene.environmentIntensity=.65;
+  scene.add(new THREE.HemisphereLight(0xe8f3ff,0x627585,2.1));const sun=new THREE.DirectionalLight(0xfff2de,3.2);sun.position.set(3,5,4);scene.add(sun);const rim=new THREE.DirectionalLight(0x96cddd,1.8);rim.position.set(-3,1,-4);scene.add(rim);
+  const bounds=new THREE.Box3().setFromObject(part),center=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3());
+  const camera=new THREE.PerspectiveCamera(32,only?1400/850:680/470,.001,50);
+  const direction=type==='chassis'?new THREE.Vector3(1,.6,1.8):type==='fin'||type==='solar'?new THREE.Vector3(.45,.25,1.7):type==='wheel'?new THREE.Vector3(1.6,.5,.8):type.includes('engine')?new THREE.Vector3(1,.55,1):new THREE.Vector3(1,.7,1);
+  views.push({type,scene,part,camera,center,size,direction,image:section.querySelector('img')});
+}
+function render(){
+  const angle=+document.querySelector('#orbit').value*Math.PI/180,motion=+document.querySelector('#motion').value,stats=[];
+  for(const v of views){
+    const {part,type,camera,scene,center,size,direction}=v;
+    const nozzle=part.getObjectByName('engine-gimbal');if(nozzle)nozzle.quaternion.copy(engineGimbal(motion*6*Math.PI/180,motion*3*Math.PI/180));
+    if(type==='wheel'){const length=WHEEL.extension-motion*WHEEL.travel;part.getObjectByName('suspension').position.z=-length;const spring=part.getObjectByName('spring');spring.position.z=-length/2;spring.scale.y=length;part.getObjectByName('steering').rotation.z=motion*.5;part.getObjectByName('tire').rotation.x=-motion*Math.PI*2;}
+    const d=direction.clone();if(underside)d.negate();d.applyAxisAngle(new THREE.Vector3(0,1,0),angle).normalize();
+    camera.position.copy(center).addScaledVector(d,size.length()*1.8);camera.lookAt(center);renderer.render(scene,camera);v.image.src=renderer.domElement.toDataURL();
+    stats.push({type,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles});
+  }
+  document.querySelector('#result').textContent=JSON.stringify(stats);window.modelReview={ready:true,stats};
+}
+document.querySelector('#orbit').oninput=render;document.querySelector('#motion').oninput=render;document.querySelector('#underside').onclick=()=>{underside=!underside;render();};render();
+</script>
+</html>

@@ -103,7 +103,7 @@ test('one state collection computes each body snapshot only once and does not re
 });
 test('static mesh merging reduces draw submissions and preserves animated pivots and bounds',()=>{
   const battery=makePart('battery');let count=0;battery.traverse(o=>{if(o instanceof Mesh)count++;});
-  assert.equal(count,4); // shell, rings, two indicator materials (formerly 15).
+  assert.ok(count<=6); // Detailed Blender geometry is batched offline by material.
   const engine=makePart('engine');assert.ok(engine.getObjectByName('engine-gimbal'));
   const wheel=makePart('wheel');for(const name of ['suspension','steering','tire','spring'])assert.ok(wheel.getObjectByName(name));
   const bounds=new Box3().setFromObject(battery);near(bounds.min.y,-.16);near(bounds.max.y,.16);
