@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {makeRunway} from './runway.ts';
+import {SiteLighting} from './site-lighting.ts';
 
 /** Blender-authored scenery in metres, with the existing launch contact at Y=0.
  * The small apron is also the offline/loading fallback, so the vehicle never
@@ -10,11 +11,14 @@ export class LaunchSite extends THREE.Group {
   readonly ready: Promise<void>;
   loadError: unknown = null;
   private disposed = false;
+  readonly lighting = new SiteLighting();
 
   constructor() {
     super();
     this.name = 'Launch Complex 01';
     this.add(makeRunway());
+    this.add(this.lighting);
+    this.lighting.register(this);
     this.userData.loadState = 'loading';
     const fallback = new THREE.Group();
     const material = new THREE.MeshStandardMaterial({color: '#aeb3af', roughness: .9});
@@ -44,6 +48,7 @@ export class LaunchSite extends THREE.Group {
       this.remove(fallback);
       disposeMeshes(fallback);
       this.add(gltf.scene);
+      this.lighting.register(gltf.scene);
       this.userData.loadState = 'ready';
     }).catch(error => {
       if (this.disposed) return;
@@ -55,6 +60,7 @@ export class LaunchSite extends THREE.Group {
 
   dispose() {
     this.disposed = true;
+    this.lighting.dispose();
     disposeMeshes(this);
     this.clear();
   }
@@ -64,7 +70,7 @@ function disposeMeshes(root: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   root.traverse(object => {
-    if (!(object instanceof THREE.Mesh)) return;
+    if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Points)) return;
     geometries.add(object.geometry);
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
   });

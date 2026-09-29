@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {Box3,Vector3,Raycaster} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {SiteLighting,LightGlows} from '../src/site-lighting.ts';
+import {SunBody} from '../src/celestial.ts';
+import {makeRunway} from '../src/runway.ts';
 
 const bytes=await readFile(new URL('../public/assets/launch-complex/launch-complex.glb',import.meta.url));
 const {scene}=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
@@ -73,4 +76,44 @@ test('apron, causeway, VAB floor and road junctions do not stack coplanar top fa
     const top=hits.filter(h=>Math.abs(h.distance-hits[0].distance)<.001);
     assert.equal(top.length,1,`coplanar floor overlap at ${x},${z}`);
   }
+});
+
+test('site lighting follows local sunset and restores day after a time jump, including late loaded fixtures',()=>{
+  const lighting=new SiteLighting(),runway=makeRunway(),sun=new SunBody();
+  lighting.register(runway);
+  const fixtures=[];
+  runway.traverse(o=>{if(o.isMesh&&o.material.emissive.getHex())fixtures.push(o.material);});
+  const halo=runway.children.find(o=>o instanceof LightGlows);
+  const floods=lighting.children.filter(o=>o.isSpotLight);
+  assert.equal(floods.length,22);
+  assert.ok(floods.every(o=>!o.castShadow&&o.distance>0));
+  assert.ok(floods.every(o=>o.position.y<0&&o.target.position.y>o.position.y));
+  lighting.update(sun.position);
+  assert.ok(fixtures.every(m=>m.emissiveIntensity===0));
+  assert.ok(floods.every(l=>l.intensity===0));
+  sun.update(5000);lighting.update(sun.position);
+  assert.ok(fixtures.every(m=>m.emissiveIntensity>0&&m.emissiveIntensity<4));
+  sun.update(21600);lighting.update(sun.position);
+  assert.ok(fixtures.every(m=>m.emissiveIntensity===4));
+  assert.equal(halo.material.uniforms.night.value,1);
+  assert.ok(floods.every(l=>l.intensity>0&&l.intensity<=1200));
+  // Model loading can complete while it is already night. Re-registering must
+  // not capture a dimmed value as the fixture's original emission strength.
+  lighting.register(scene);
+  const modelFixtures=meshes.map(m=>m.material).filter(m=>m.emissive.getHex());
+  assert.ok(modelFixtures.length>0&&modelFixtures.every(m=>m.emissiveIntensity>0));
+  const original=modelFixtures.map(m=>m.emissiveIntensity);
+  sun.update(0);lighting.update(sun.position);lighting.register(scene);
+  assert.ok(modelFixtures.every(m=>m.emissiveIntensity===0));
+  assert.equal(halo.material.uniforms.night.value,0);
+  sun.update(21600);lighting.update(sun.position);
+  assert.deepEqual(modelFixtures.map(m=>m.emissiveIntensity),original);
+  lighting.dispose();
+  const geometries=new Set(),materials=new Set();
+  for(const root of [runway,lighting])root.traverse(o=>{
+    if(o.geometry)geometries.add(o.geometry);
+    if(o.material)materials.add(o.material);
+  });
+  for(const geometry of geometries)geometry.dispose();
+  for(const material of materials)material.dispose();
 });

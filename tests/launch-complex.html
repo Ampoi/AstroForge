@@ -10,13 +10,13 @@ button:hover{background:#345453}#status{position:absolute;right:24px;bottom:84px
 </style>
 <div id="scene"></div>
 <header><small>ASTROFORGE / GROUND SYSTEMS</small><h1>Launch Complex 01</h1><span>VAB → 搬送路 → 発射台</span></header>
-<nav><button id="overview">施設全体</button><button id="pad">発射台</button><button id="corridor">搬送路とVAB</button><button id="flight">通常の飛行画面</button></nav>
+<nav><button id="overview">施設全体</button><button id="pad">発射台</button><button id="corridor">搬送路とVAB</button><button id="runway">滑走路</button><button id="flight">通常の飛行画面</button><button id="day">昼</button><button id="dusk">夕暮れ</button><button id="night">夜</button></nav>
 <div id="status">Loading Blender model…</div>
 <script type="module">
 import * as THREE from 'three';
 import {RocketScene} from '../src/scene.ts';
 import {starterCraft,massProperties,craftStats} from '../shared/craft.ts';
-import {EARTH_RADIUS} from '../src/celestial.ts';
+import {EARTH_RADIUS,EARTH_SPIN} from '../src/celestial.ts';
 const view=new RocketScene(document.querySelector('#scene'),()=>{},()=>{});
 const craft=starterCraft(),props=massProperties(craft),stats=craftStats(craft);
 view.setCraft(craft);view.setMode('flight');
@@ -31,6 +31,16 @@ document.querySelector('#overview').onclick=()=>view.fitSite();
 document.querySelector('#pad').onclick=()=>pose([130,68,-58],[-16,35,-4]);
 document.querySelector('#corridor').onclick=()=>pose([89,69,-64],[0,14,161]);
 document.querySelector('#flight').onclick=()=>view.fit();
+document.querySelector('#runway').onclick=()=>pose([-510,190,870],[450,0,450]);
+function timeOfDay(time){
+  const angle=EARTH_SPIN*time,radius=EARTH_RADIUS+props.com[0];
+  flight.time=time;flight.position=[radius*Math.cos(angle),radius*Math.sin(angle),0];
+  flight.quaternion=[0,0,Math.sin(angle/2),Math.cos(angle/2)];
+  view.updateFlight(flight,[]);view.renderFlight(flight,performance.now());
+}
+document.querySelector('#day').onclick=()=>timeOfDay(0);
+document.querySelector('#dusk').onclick=()=>timeOfDay(5000);
+document.querySelector('#night').onclick=()=>timeOfDay(21600);
 await Promise.all([view.launchSite.ready,view.environment.ready]);
 view.fitSite();
 let meshes=0,triangles=0;

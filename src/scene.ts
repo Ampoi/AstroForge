@@ -15,6 +15,7 @@ import {makeFaceGuide} from './attachment-guides.ts';
 import {EarthEnvironment,earthFixed,EARTH_RADIUS} from './environment.ts';
 import {SceneLighting} from './celestial.ts';
 import {makeLaunchSite} from './launch-site.ts';
+import {skipInactiveLights} from './site-lighting.ts';
 import {LocalTerrain} from './terrain.ts';
 import {surfaceClearance} from '../shared/terrain.ts';
 import {VabEnvironment, setVabLighting} from './vab.ts';
@@ -92,6 +93,7 @@ export class RocketScene{
     this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,3000000);this.globeCamera.up.set(0,0,-1);
     this.globeControls=new OrbitControls(this.globeCamera,this.renderer.domElement);this.globeControls.enableDamping=true;this.globeControls.enablePan=false;this.globeControls.minDistance=3;this.globeControls.maxDistance=1500000;this.globeControls.enabled=false;
     this.lighting=new SceneLighting(this.scene);
+    skipInactiveLights(this.terrain.material,true);
     this.ground=new THREE.Group();this.scene.add(this.ground);
     this.hangar=new VabEnvironment();this.ground.add(this.hangar);
     this.grid=new THREE.GridHelper(44,44,'#78908f','#52666b');this.grid.position.y=.02;this.grid.material.transparent=true;this.grid.material.opacity=.15;this.ground.add(this.grid);
@@ -411,6 +413,7 @@ export class RocketScene{
     }
 
     this.environment.updatePose(f);
+    this.launchSite.lighting.update(this.environment.sun.position);
     if(this.globe){this.solarMap.updateTime(f.time,[f,...f.debris]);this.solarMap.requestPredictions([f,...f.debris],now);}
     // World ECI -> Three at the rotating launch frame; model y is body x.
     const spin=-7.292115e-5*f.time;

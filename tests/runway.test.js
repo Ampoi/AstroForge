@@ -13,7 +13,7 @@ const close=(a,b,eps=.02)=>assert.ok(Math.abs(a-b)<eps,`${a} != ${b}`);
 const ids=preview=>preview.occupants.map(v=>v.id);
 test('runway rendered deck matches the rotating physical surface along its full length',()=>{
   const runway=makeRunway();runway.updateMatrixWorld(true);
-  assert.ok(runway.children.length<=4);
+  assert.ok(runway.children.length<=6);
   for(const east of [-290,-220,600,1490])for(const north of [-475,-450,-425]){
     const ray=new Raycaster(new Vector3(east,10,-north),new Vector3(0,-1,0));
     const hit=ray.intersectObject(runway)[0];assert.ok(hit);close(hit.point.y,RUNWAY.height,.03);
