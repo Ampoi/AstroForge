@@ -14,13 +14,20 @@ test('time warp advances exact fixed steps and keeps wall-clock command expiry',
   world.advance(.1,4);assert.equal(s.last.thrust,0);assert.ok(Math.abs(world.time-2)<1e-9);
   assert.throws(()=>world.setTimeScale(11));assert.throws(()=>world.setTimeScale('10'));assert.throws(()=>world.setTimeScale(null));
 });
-test('all warp rates through 200 preserve fixed steps, resources and wall-clock expiry',()=>{
+test('all warp rates preserve fixed steps, resources and wall-clock expiry across bounded catch-up loops',()=>{
   for(const scale of TIME_SCALES){
     const world=new FlightWorld(starterCraft()),reference=new FlightWorld(starterCraft());
     world.setTimeScale(scale);
     for(const w of [world,reference])w.active.engines.engine_1={enabled:true,targetThrust:60000,expires:3};
     for(const now of [1,4]){
-      assert.equal(world.advance(STEP,now),scale);
+      let steps=world.advance(STEP,now);
+      assert.equal(steps,Math.min(scale,300));
+      while(world.accumulator+1e-12>=STEP){
+        const batch=world.advance(0,now);
+        assert.ok(batch>0&&batch<=300);
+        steps+=batch;
+      }
+      assert.equal(steps,scale);
       for(let i=0;i<scale;i++)reference.step(STEP,now);
       assert.deepEqual(world.active.position,reference.active.position);
       assert.equal(world.active.fuel,reference.active.fuel);
@@ -29,9 +36,9 @@ test('all warp rates through 200 preserve fixed steps, resources and wall-clock 
     assert.equal(world.active.last.thrust,0);
     world.setTimeScale(1);assert.equal(world.advance(STEP,5),1);
   }
-  const world=new FlightWorld(starterCraft());world.setTimeScale(200);
-  for(const invalid of [201,1000,0,-1,NaN,Infinity,1.5,'200',null]){
-    assert.throws(()=>world.setTimeScale(invalid));assert.equal(world.timeScale,200);
+  const world=new FlightWorld(starterCraft());world.setTimeScale(7200);
+  for(const invalid of [201,1000,7201,0,-1,NaN,Infinity,1.5,'7200',null]){
+    assert.throws(()=>world.setTimeScale(invalid));assert.equal(world.timeScale,7200);
   }
 });
 test('new vessels share Earth time while earlier flights survive and pad occupancy is protected',()=>{

@@ -143,6 +143,8 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   const runwayFreed=dgram.createSocket('udp4');runwayFreed.bind(runwayPort,'127.0.0.1');await once(runwayFreed,'listening');runwayFreed.close();
   await post('launch',{...starterCraft(),site:'runway',recoverVehicleIds:[runwayId]},400);
   await post('editor',{});await post('part-command',{vehicleId:guiId,command:motor},400);
+  for(const scale of [3600,7200]){s=await post('time-scale',{scale});assert.equal(s.timeScale,scale);}
+  await post('time-scale',{scale:7201},400);
   s=await post('revert',{});assert.equal(s.vehicles.length,1);assert.equal(s.connection.enabled,false);
   await stop();await start();s=await get();assert.equal(s.library.find(e=>e.id===saved1.libraryId).craft.name,'Updated one');assert.equal(s.library.find(e=>e.id===saved2.libraryId).craft.name,'Saved two');assert.equal(s.craft.name,'Updated one');
 });

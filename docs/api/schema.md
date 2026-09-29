@@ -41,7 +41,7 @@
 | `vehicles` | 全主機体・分離物・破片の平坦な配列 |
 | `flight` | activeVehicleIdの機体のSnapshot。配下のdebrisを含む互換用フィールド |
 | `trail` | activeVehicleIdの機体の間引き済みECI位置履歴 |
-| `timeScale` | 1 / 2 / 5 / 10 |
+| `timeScale` | 1 / 2 / 5 / 10 / 20 / 50 / 100 / 200 / 3600 / 7200 |
 | `simulationTime` | サーバーの共通物理時刻、秒 |
 | `utc` | サーバー実時計のISO 8601 UTC時刻 |
 | `connection` | activeVehicleIdのudp情報とhttpPort・physicsHz・telemetryHz・physicsMs・physicsBackend・slowFrames |
