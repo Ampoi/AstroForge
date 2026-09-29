@@ -124,6 +124,7 @@ body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-colo
 .part-info-settings .icon-button{font:11px var(--mono)}
 
 .view-tools{z-index:5}
+.view-tools .preview-badge{position:absolute;right:0;bottom:calc(100% + 8px);height:auto;white-space:nowrap;padding:6px 9px;border:1px solid #526c79;border-radius:4px;background:#142530e8;color:#c9dedb;font-size:10px}
 .scene-top,.build-toolbar,.placement-hint,.scene-bottom,.flight-hud{z-index:2}
 
 /* Celestial map controls */

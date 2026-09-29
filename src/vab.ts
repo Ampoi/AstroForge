@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {lightweightPreview} from './render-mode.ts';
 
 // A cutaway assembly building: the near walls open as the camera moves outside,
 // so orbiting and fitting large assemblies never hides the work behind a wall.
@@ -6,7 +7,7 @@ export class VabEnvironment extends THREE.Group {
   private walls: { group: THREE.Group; normal: THREE.Vector3 }[] = [];
   private readonly unitBox = new THREE.BoxGeometry(1, 1, 1);
   private readonly floodShadow: THREE.LightShadow;
-  private readonly glowTexture: THREE.DataTexture;
+  private readonly glowTexture: THREE.DataTexture|null;
   private readonly surfaces = {
     steel: new THREE.MeshStandardMaterial({ color: '#46575a', metalness: .65, roughness: .6 }),
     wall: new THREE.MeshStandardMaterial({ color: '#263337', metalness: .35, roughness: .85 }),
@@ -17,24 +18,29 @@ export class VabEnvironment extends THREE.Group {
     amber: new THREE.MeshBasicMaterial({ color: '#ffc17b' }),
   };
 
-  constructor() {
+  constructor(lightweight=lightweightPreview) {
     super();
     this.name = 'Vehicle assembly building';
-    const pixels = new Uint8Array(64 * 64 * 4);
-    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const pixels = lightweight?null:new Uint8Array(64 * 64 * 4);
+    if(pixels)for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
       const i = (y * 64 + x) * 4, radius = Math.hypot((x - 31.5) / 31.5, (y - 31.5) / 31.5);
       pixels.set([255, 255, 255, Math.round(Math.pow(Math.max(0, 1 - radius), 2.5) * 150)], i);
     }
-    this.glowTexture = new THREE.DataTexture(pixels, 64, 64);
-    this.glowTexture.needsUpdate = true;
+    this.glowTexture = pixels?new THREE.DataTexture(pixels, 64, 64):null;
+    if(this.glowTexture)this.glowTexture.needsUpdate = true;
     const glow = (color: string) => new THREE.MeshBasicMaterial({ color, map: this.glowTexture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-    const amberGlow = glow('#ffa14e'), whiteGlow = glow('#c8ebff');
-    const glowPlane = new THREE.PlaneGeometry(1, 1);
+    const amberGlow = lightweight?null:glow('#ffa14e'), whiteGlow = lightweight?null:glow('#c8ebff');
+    const glowPlane = lightweight?null:new THREE.PlaneGeometry(1, 1);
     for (let side = 0; side < 4; side++) {
       const wall = new THREE.Group();
       wall.rotation.y = side * Math.PI / 2;
       this.add(wall);
       this.walls.push({ group: wall, normal: new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), wall.rotation.y) });
+      if(lightweight){
+        const panel=new THREE.Mesh(this.unitBox,this.surfaces.wall);
+        panel.position.set(0,30,-23);panel.scale.set(46,60,.3);wall.add(panel);
+        continue;
+      }
       const batches = new Map<keyof typeof this.surfaces, THREE.Matrix4[]>();
       const box = (kind: keyof typeof this.surfaces, x: number, y: number, z: number, w: number, h: number, d: number, angle = 0) => {
         const matrix = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), angle), new THREE.Vector3(w, h, d));
@@ -59,7 +65,7 @@ export class VabEnvironment extends THREE.Group {
           box('dark', x, y + 2.5, -22.4, 1.3, .5, .4);
           box('amber', x, y + 2.4, -22.1, .9, .16, .12);
           box('white', x, y - .2, -17.45, 2.4, .055, .08);
-          const pool = new THREE.Mesh(glowPlane, amberGlow);
+          const pool = new THREE.Mesh(glowPlane!, amberGlow!);
           pool.position.set(x, y + 1.8, -22.5); pool.scale.set(6, 6, 1); wall.add(pool);
         }
         // Service ladders, set back from the unobstructed assembly volume.
@@ -81,19 +87,19 @@ export class VabEnvironment extends THREE.Group {
     platform.position.y = -.055; platform.receiveShadow = true; this.add(platform);
     const ring = new THREE.Mesh(new THREE.RingGeometry(4.25, 4.29, 128), this.surfaces.yellow);
     ring.rotation.x = -Math.PI / 2; ring.position.y = .009; this.add(ring);
-    for (let i = 0; i < 48; i++) {
+    for (let i = 0; i < 48; i+=lightweight?6:1) {
       const a = i * Math.PI / 24;
       const mark = new THREE.Mesh(this.unitBox, i % 2 ? this.surfaces.dark : this.surfaces.yellow);
       mark.scale.set(.18, .012, .3); mark.position.set(Math.cos(a) * 4.48, .012, Math.sin(a) * 4.48); mark.rotation.y = -a; this.add(mark);
     }
-    for (const x of [-6, 6]) {
+    for (const x of lightweight?[]:[-6, 6]) {
       const lane = new THREE.Mesh(this.unitBox, this.surfaces.yellow);
       lane.scale.set(.065, .015, 32); lane.position.set(x, -.06, 0); this.add(lane);
       for (const z of [-5, 0, 5]) {
         const fixture = new THREE.Group(); fixture.position.set(x, .12, z); this.add(fixture);
         const base = new THREE.Mesh(this.unitBox, this.surfaces.dark); base.scale.set(.8, .22, .55); fixture.add(base);
         const lens = new THREE.Mesh(this.unitBox, this.surfaces.white); lens.scale.set(.62, .035, .32); lens.position.y = .14; fixture.add(lens);
-        const pool = new THREE.Mesh(glowPlane, whiteGlow);
+        const pool = new THREE.Mesh(glowPlane!, whiteGlow!);
         pool.rotation.x = -Math.PI / 2; pool.position.set(x * .82, -.045, z); pool.scale.set(5, 5, 1); this.add(pool);
       }
     }
@@ -107,7 +113,7 @@ export class VabEnvironment extends THREE.Group {
       light.position.set(x, y, z); light.target.position.set(0, 7, 0); this.add(light, light.target);
       floods.push(light);
     }
-    floods[0].castShadow = true;
+    floods[0].castShadow = !lightweight;
     this.floodShadow = floods[0].shadow;
     this.floodShadow.mapSize.set(1024, 1024);
     Object.assign(this.floodShadow.camera, { left: -16, right: 16, top: 32, bottom: -16, near: .1, far: 100 });
@@ -119,7 +125,11 @@ export class VabEnvironment extends THREE.Group {
   }
 
   // Mesh geometry/materials are released by RocketScene's normal scene traversal.
-  dispose() { this.glowTexture.dispose(); this.floodShadow.dispose(); }
+  dispose() {
+    this.glowTexture?.dispose(); this.floodShadow.dispose();
+    // The preview omits several surfaces, so scene traversal cannot release them.
+    for(const material of Object.values(this.surfaces))material.dispose();
+  }
 }
 
 // Existing outdoor lights stay intact and resume when returning to flight.

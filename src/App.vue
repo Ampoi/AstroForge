@@ -6,6 +6,10 @@ import { PARTS, isRover } from "../shared/craft.ts";
 import { TIME_SCALES, isDangerousTimeScale } from "../shared/time-scales.ts";
 import {attachmentFace,faceLabel,FACE_COLORS,SLIM_DIAMETER} from "../shared/attachment.ts";
 import { useWorkshop, num, phase } from "./useWorkshop.ts";
+import { lightweightPreview } from "./render-mode.ts";
+const development=import.meta.env.DEV;
+const renderModeLink=new URL(window.location.href);
+renderModeLink.searchParams.set('render',lightweightPreview?'full':'preview');
 const {
   partInfoSettings, partProjection, copyPartId,
   displayRate,
@@ -420,6 +424,7 @@ function closeOnBackdrop(event: MouseEvent) {
         </svg>
       </div>
       <div class="view-tools">
+        <span v-if="lightweightPreview" class="preview-badge" title="雲・星空・格納庫の装飾を簡略化しています">軽量プレビュー</span>
         <details class="display-settings part-info-settings">
           <summary class="icon-button" :class="{active:partInfoSettings.enabled}" aria-label="パーツ情報の表示設定" title="パーツ情報の表示設定">ID</summary>
           <div class="display-settings-panel">
@@ -434,6 +439,7 @@ function closeOnBackdrop(event: MouseEvent) {
         <details class="display-settings">
           <summary class="icon-button" aria-label="表示設定" title="表示設定">⚙</summary>
           <div class="display-settings-panel">
+            <p v-if="development"><a :href="renderModeLink.href">{{ lightweightPreview ? '通常描画に切り替える' : '軽量プレビューに切り替える' }}</a></p>
             <label for="display-frame-rate">描画フレームレート</label>
             <select id="display-frame-rate" :value="displayRate" @change="setDisplayRate">
               <option v-for="option in frameRates" :key="option.value" :value="option.value">{{ option.label }}</option>
