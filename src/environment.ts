@@ -10,6 +10,7 @@ import {cloudNoise,cloudShader,cloudRenderSize} from './clouds.ts';
 import {weatherTexture} from './weather.ts';
 import {planetTexture} from './terrain.ts';
 import {makeStarField} from './stars.ts';
+import {lightweightPreview} from './render-mode.ts';
 export {EARTH_RADIUS,earthFixed} from './celestial.ts';
 
 const fragmentShader=`
@@ -31,7 +32,9 @@ const float PI=3.14159265359;
 const float ATM=1.01256;
 vec2 sphere(vec3 o,vec3 d,float r){float b=dot(o,d);float c=dot(o,o)-r*r;float h=b*b-c;if(h<0.)return vec2(-1.);h=sqrt(h);return vec2(-b-h,-b+h);}
 vec2 uv(vec3 n){return vec2(atan(n.x,n.y)/(2.*PI)+.5,asin(clamp(-n.z,-1.,1.))/PI+.5);}
+#ifndef LIGHTWEIGHT_PREVIEW
 ${cloudShader}
+#endif
 void main(){
   vec2 screen=vUv*2.-1.;
   vec3 d=normalize(cameraRotation*vec3(screen.x*aspect*tanFov,screen.y*tanFov,-1.));
@@ -70,12 +73,16 @@ void main(){
     vec3 normal=normalize(n-e*east/(2.*6371000.*2.*PI*texel.x*max(.05,length(n.xy)))-pole*north/(2.*6371000.*PI*texel.y));
     float light=dot(normal,sunDirection);
     float day=smoothstep(-.08,.12,light);
-    float shadow=light>0.?cloudShadow(n,hit*pixelAngle):1.;
+    float shadow=1.;
+    #ifndef LIGHTWEIGHT_PREVIEW
+    shadow=light>0.?cloudShadow(n,hit*pixelAngle):1.;
+    #endif
     float ocean=1.-smoothstep(.01,.12,surface.r-surface.b+.12);
     float shine=pow(max(dot(reflect(-sunDirection,n),-d),0.),70.)*ocean*.15*shadow;
     color=surface*(.045+max(0.,light)*1.05*shadow)+shine*vec3(1.,.85,.61)*day;
     if(globe>.5){vec4 clip=viewProjection*vec4(n*10.,1.);gl_FragDepth=clip.z/clip.w*.5+.5;}
   }
+  #ifndef LIGHTWEIGHT_PREVIEW
   float cloudDistance;
   vec4 cloud=traceClouds(observer,d,hit,cloudDistance);
   color=color*cloud.a+cloud.rgb;
@@ -86,18 +93,21 @@ void main(){
     vec4 clip=viewProjection*vec4(flightCameraPosition+d*cloudDistance*6371000.,1.);
     gl_FragDepth=clamp(clip.z/clip.w*.5+.5,0.,1.);
   }
-  // Six samples of exponential atmospheric density. Visual scattering approximation.
+  #endif
+  // Visual scattering only; the physical atmosphere is independent of this pass.
   vec2 air=sphere(observer,d,ATM);
   if(air.y>0.){
     float start=max(0.,air.x),end=hit>0.?min(hit,air.y):air.y;
     // Apply only the air in front of opaque clouds, so nearby white tops and
     // dark bases are not washed out by the entire atmospheric column.
+    #ifndef LIGHTWEIGHT_PREVIEW
     end=mix(min(end,max(start,cloudDistance)),end,cloud.a);
-    float ds=max(0.,end-start)/6.;
+    #endif
+    float ds=max(0.,end-start)/float(ATMOSPHERE_STEPS);
     vec3 optical=vec3(0.),scatter=vec3(0.);
     vec3 beta=vec3(5.8,13.5,33.1);
     float phase=.75*(1.+sunDot*sunDot);
-    for(int i=0;i<6;i++){
+    for(int i=0;i<ATMOSPHERE_STEPS;i++){
       vec3 point=observer+d*(start+(float(i)+.5)*ds);
       float height=max(0.,length(point)-1.);
       float density=exp(-height/.001255);
@@ -114,17 +124,17 @@ void main(){
   #include <colorspace_fragment>
 }`;
 
-function makeUniforms(map: THREE.Texture,weather: THREE.Texture){return {cloudWeather:{value:weather},earthMap:{value:map},cloudNoise:{value:cloudNoise()},sunPosition:{value:new THREE.Vector3()},sunRadius:{value:0},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},pixelAngle:{value:.001},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
+function makeUniforms(map: THREE.Texture,weather: THREE.Texture|null){return {cloudWeather:{value:weather},earthMap:{value:map},cloudNoise:{value:weather?cloudNoise():null},sunPosition:{value:new THREE.Vector3()},sunRadius:{value:0},observer:{value:new THREE.Vector3(0,1.001,0)},sunDirection:{value:new THREE.Vector3(-.8,.3,-.5).normalize()},cameraRotation:{value:new THREE.Matrix3()},viewProjection:{value:new THREE.Matrix4()},pixelAngle:{value:.001},aspect:{value:1},tanFov:{value:Math.tan(17*Math.PI/180)},globe:{value:0}};}
 
 export class EarthEnvironment{
   readonly sun=new SunBody();
-  private readonly weather=weatherTexture();
+  private readonly weather:ReturnType<typeof weatherTexture>|null;
   private readonly planet=planetTexture();
   private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthTexture:new THREE.DepthTexture(1,1)});
   private readonly flightCameraPosition={value:new THREE.Vector3()};
   private readonly composite=new THREE.Scene();
   private readonly starScene=new THREE.Scene();
-  private readonly stars:ReturnType<typeof makeStarField>;
+  private readonly stars:ReturnType<typeof makeStarField>|null;
   private readonly renderSize=new THREE.Vector2();
   private readonly skyTexel=new THREE.Vector2(1,1);
   scene: THREE.Scene; camera: THREE.OrthographicCamera; ready: Promise<void>;
@@ -132,14 +142,15 @@ export class EarthEnvironment{
   trail: THREE.Line<THREE.BufferGeometry,THREE.LineBasicMaterial>; prediction: Line2;
   marker: THREE.Sprite; position: THREE.Vector3; time=0; destroyed=false;
 
-  constructor(){
+  constructor(lightweight=lightweightPreview){
     this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-    const {map,ready}=this.planet;this.ready=Promise.all([ready,this.weather.ready]).then(()=>{});
-    this.uniforms=makeUniforms(map,this.weather.map);
-    this.stars=makeStarField(this.background.texture,this.uniforms.cameraRotation,this.uniforms.aspect,this.uniforms.tanFov);
-    this.starScene.add(this.stars);
+    this.weather=lightweight?null:weatherTexture();
+    const {map,ready}=this.planet;this.ready=Promise.all([ready,this.weather?.ready]).then(()=>{});
+    this.uniforms=makeUniforms(map,this.weather?.map??null);
+    this.stars=lightweight?null:makeStarField(this.background.texture,this.uniforms.cameraRotation,this.uniforms.aspect,this.uniforms.tanFov);
+    if(this.stars)this.starScene.add(this.stars);
     this.uniforms.sunPosition.value=this.sun.position;this.uniforms.sunRadius.value=this.sun.radius;
-    const material=new THREE.ShaderMaterial({uniforms:{...this.uniforms,flightCameraPosition:this.flightCameraPosition},vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
+    const material=new THREE.ShaderMaterial({defines:lightweight?{LIGHTWEIGHT_PREVIEW:1,ATMOSPHERE_STEPS:2}:{ATMOSPHERE_STEPS:6},uniforms:{...this.uniforms,flightCameraPosition:this.flightCameraPosition},vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader,depthTest:true,depthWrite:true,depthFunc:THREE.AlwaysDepth});
     const plane=new THREE.Mesh(new THREE.PlaneGeometry(2,2),material);plane.frustumCulled=false;this.scene.add(plane);
     const copy=new THREE.ShaderMaterial({
       uniforms:{background:{value:this.background.texture},backgroundDepth:{value:this.background.depthTexture},texel:{value:this.skyTexel},
@@ -217,8 +228,8 @@ export class EarthEnvironment{
         for(const m of Array.isArray(o.material)?o.material:[o.material]){if('map' in m && m.map instanceof THREE.Texture)m.map.dispose();m.dispose();}
       }
     });
-    this.background.dispose();this.weather.dispose();this.planet.dispose();
-    this.uniforms.earthMap.value.dispose();this.uniforms.cloudNoise.value.dispose();
+    this.background.dispose();this.weather?.dispose();this.planet.dispose();
+    this.uniforms.earthMap.value.dispose();this.uniforms.cloudNoise.value?.dispose();
   }
   render(renderer: THREE.WebGLRenderer,camera: THREE.PerspectiveCamera,globe: boolean,rocketCenter: THREE.Vector3){
     camera.updateMatrixWorld();this.flightCameraPosition.value.copy(camera.position);
@@ -236,9 +247,11 @@ export class EarthEnvironment{
     const target=renderer.getRenderTarget();renderer.setRenderTarget(this.background);
     renderer.render(this.scene,this.camera);renderer.setRenderTarget(target);
     renderer.render(this.composite,this.camera);
-    this.stars.material.uniforms.resolution.value.copy(this.renderSize);
-    this.stars.material.uniforms.pixelRatio.value=Math.min(2,renderer.getPixelRatio());
-    renderer.render(this.starScene,this.camera);
+    if(this.stars){
+      this.stars.material.uniforms.resolution.value.copy(this.renderSize);
+      this.stars.material.uniforms.pixelRatio.value=Math.min(2,renderer.getPixelRatio());
+      renderer.render(this.starScene,this.camera);
+    }
     if(globe){
       const toMarker=this.position.clone().sub(u.observer.value),distance=toMarker.length(),direction=toMarker.normalize();
       const b=u.observer.value.dot(direction),c=u.observer.value.lengthSq()-1,disc=b*b-c,hit=disc>=0?-b-Math.sqrt(disc):-1;

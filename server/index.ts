@@ -125,7 +125,7 @@ const server=http.createServer(async(req,res)=>{
     const data=await readFile(file);res.writeHead(200,{'Content-Type':mime[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:data);
   }catch(e){json(res,errorCode(e)==='ENOENT'?404:400,{error:errorCode(e)==='ENOENT'?'Not found':errorMessage(e)});}
 });
-if(process.argv.includes('--dev'))vite=await (await import('vite')).createServer({server:{middlewareMode:true,hmr:{server}},appType:'spa'});
+if(process.argv.includes('--dev'))vite=await (await import('vite')).createServer({mode:process.argv.includes('--preview')?'preview':'development',server:{middlewareMode:true,hmr:{server}},appType:'spa'});
 await udp.enable(sim);
 await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(config.httpPort,'127.0.0.1',()=>resolve());});
 console.log(`AstroForge  http://localhost:${config.httpPort}\nUDP commands 127.0.0.1:${udp.snapshot(sim.id).commandPort} → telemetry ${config.telemetryHost}:${udp.snapshot(sim.id).telemetryPort}\n120 Hz physics (${physicsKernel.name}) · 20 Hz PyLoN v1 telemetry per enabled vehicle`);

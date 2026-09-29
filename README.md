@@ -86,6 +86,7 @@ PyLoN v1の飛行制御に関係するサブセットを実装しています。
 AstroForge本体を開発する方は、[開発・ビルド・コード構成](docs/contributing.md)を参照してください。
 
 - 開発起動：`npm run dev`
+- 軽量な開発プレビュー：`npm run dev:preview` → [localhost:3000](http://localhost:3000/)。雲・星空・格納庫の装飾を簡略化し、地形とシミュレーションは維持します。
 - ビルドと検証：必要なコマンドと生成物を[ビルド手順](docs/contributing.md#ビルドする)にまとめています。
 - コードの配置：UI・サーバー・物理計算・共有コード・サンプルは[フォルダ一覧](docs/contributing.md#フォルダとコードの配置)を参照してください。
 - 不具合報告・機能提案：[Issues](https://github.com/Ampoi/AstroForge/issues)、変更の提案：[Pull Requests](https://github.com/Ampoi/AstroForge/pulls)。
