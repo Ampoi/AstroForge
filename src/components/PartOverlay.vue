@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed } from 'vue';
 import PartControls from './PartControls.vue';
 import { canControlPart } from '../part-controls.ts';
 import type { UdpState } from '../../shared/api.ts';
@@ -12,10 +12,6 @@ const props = defineProps<{
   settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
   udp?: UdpState; unavailable: boolean; sendCommand: (command: Record<string, unknown>) => Promise<void>;
 }>();
-const panel = ref<HTMLElement>();
-function revealSelection(){if(props.selected)panel.value?.querySelector('.selected')?.scrollIntoView({block:'nearest'});}
-onMounted(revealSelection);
-watch(()=>props.selected,revealSelection,{flush:'post'});
 const emit = defineEmits<{ select: [id: string | null]; copy: [id: string]; enable: [] }>();
 const entries = computed(() => new Map(props.parts.map(part => {
   const rows = partInfoRows(part, props.flight).filter(row => props.settings[row.key]);
@@ -27,8 +23,9 @@ const labels = computed(() => [...entries.value.values()]
   .map(entry => ({ ...entry, id: entry.part.id })));
 </script>
 <template>
-  <div v-if="labels.length" ref="panel" class="sidebar-part-info" aria-label="パーツ情報">
-    <section v-for="label in labels" :key="label.id" class="part-callout" :class="{ selected: label.id === selected }"
+  <div v-if="labels.length" class="sidebar-part-info" :class="{ 'has-summary': labels.some(label => label.id !== selected) }" aria-label="パーツ情報">
+    <Teleport v-for="label in labels" :key="label.id" to="#part-selection-layer" :disabled="label.id !== selected">
+    <section class="part-callout" :class="{ selected: label.id === selected }"
       :data-part-id="label.id">
       <template v-if="label.id === selected">
         <div class="part-callout-heading"><strong>PART INFO</strong><button aria-label="パーツ選択を解除" @click="emit('select', null)">×</button></div>
@@ -48,5 +45,6 @@ const labels = computed(() => [...entries.value.values()]
         <dl v-for="row in label.rows" :key="row.key" class="part-info-row"><dt>{{ row.label }}</dt><dd :title="row.value">{{ row.value }}</dd></dl>
       </button>
     </section>
+    </Teleport>
   </div>
 </template>

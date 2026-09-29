@@ -130,6 +130,7 @@ function closeOnBackdrop(event: MouseEvent) {
           3D表示にはWebGLが必要です。ブラウザのハードウェアアクセラレーションを有効にして再読み込みしてください。
         </p>
       </div>
+      <div id="part-selection-layer" class="part-selection-layer" />
     </main>
     <aside class="right-panel" aria-label="操作サイドバー">
   <div class="universal-clock" aria-label="ゲーム内時刻（GMT）">
@@ -385,7 +386,7 @@ function closeOnBackdrop(event: MouseEvent) {
             <fieldset><legend>表示項目</legend>
               <label v-for="field in partInfoFields" :key="field.key"><input v-model="partInfoSettings[field.key]" type="checkbox" /> {{ field.label }}</label>
             </fieldset>
-            <p>選択したパーツのID・操作・API資料をサイドバーに表示します。</p>
+            <p>選択したパーツのID・操作・API資料を3D画面の左側に表示します。</p>
           </div>
         </details>
         <details class="display-settings">
