@@ -13,12 +13,13 @@ POSTには `Content-Type: application/json` が必要です。本文は最大65,
 | POST | `/api/editor` | 飛行を継続しVABを開く | `{}` または `{ "libraryId": "two-stage" }` |
 | POST | `/api/flight` | 配置せずフライト画面に戻る | `{}` |
 | POST | `/api/craft` | 機体をライブラリに保存 | Craftと任意の`libraryId` |
-| POST | `/api/launch` | 機体を発射台へ配置 | Craft |
+| POST | `/api/launch-preview` | 配置先の占有・回収可否を確認 | Craftと任意の`site` |
+| POST | `/api/launch` | 機体を配置 | Craftと任意の`site`・`recoverVehicleIds` |
 | POST | `/api/control` | 機体ごとのUDPをON/OFF | `{ "vehicleId": "...", "enabled": true }` |
 | POST | `/api/time-scale` | 時間倍率を変更 | `{ "scale": 10 }` |
 | POST | `/api/revert` | 全飛行をリセットする旧API | `{}` |
 
-`/api/craft`以外のPOSTは現在の[State](./schema#state)を返します。画面モード・倍率・各機体のUDP設定は同じサーバーの全ブラウザで共有します。カメラ追尾は各ブラウザ内の状態で、HTTP APIはありません。
+`/api/craft`・`/api/launch-preview`以外のPOSTは現在の[State](./schema#state)を返します。画面モード・倍率・各機体のUDP設定は同じサーバーの全ブラウザで共有します。カメラ追尾は各ブラウザ内の状態で、HTTP APIはありません。
 
 ## GET /api/state
 
@@ -70,7 +71,11 @@ console.log(saved.libraryId);
 
 [Craft](./schema#craft)を本文として送ります。燃料・エンジン・TWRなどの発射可能性を検証し、新規機体をUDP OFFで追加し、フライト画面に移動します。既存の飛行機体のUDPセッションと指令は維持します。配置だけでは点火しません。
 
-既存の飛行は継続します。未発射の発射台機体だけは置き換わります。発射台付近に既存の機体があると拒否します。同時に保持できる主機体は12機です。
+`site`は`"pad"`（ロケット発射場）・`"runway"`（滑走路）・`"ground"`（地表）。省略時は車輪付き機体が地表、その他は発射場です。滑走路では東向きの水平姿勢になります。
+
+占有機体は自動で置き換えません。先に`/api/launch-preview`へ同じCraftと`site`を送ると、`{ site, occupants: [{ id, name, recoverable }] }`が返ります。利用者が回収を選んだ場合だけ、その機体IDを`recoverVehicleIds`配列に指定して配置します。回収できるのは施設上の停止機体で、移動中・上空の機体は対象外です。実行時に回収可否を再確認し、未指定の占有機体や移動済みの回収対象があれば400で拒否し、既存機体を維持します。
+
+回収機体の指令・UDP接続は終了します。保存設計、別施設や離れた場所の機体・分離段は維持します。同時に保持できる主機体は12機です。
 
 ## POST /api/control
 

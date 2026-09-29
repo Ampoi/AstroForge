@@ -12,8 +12,9 @@ import {FlightWorld} from './world.ts';
 import {physicsKernel} from './physics-kernel.ts';
 import {randomUUID} from 'node:crypto';
 import {VehicleUdp} from './vehicle-udp.ts';
-import {pathfinder3Craft,starterCraft,twoStageCraft,roverCraft,validateCraft,launchIssues} from '../shared/craft.ts';
+import {pathfinder3Craft,starterCraft,twoStageCraft,roverCraft,validateCraft,launchIssues,isRover} from '../shared/craft.ts';
 import {emptyAssembly} from '../shared/assembly.ts';
+import {launchSiteId} from '../shared/launch-sites.ts';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 function port(name: string,fallback: number){const v=Number(process.env[name]||fallback);if(!Number.isInteger(v)||v<1||v>65535)throw Error(`Invalid ${name}`);return v;}
@@ -82,9 +83,12 @@ const server=http.createServer(async(req,res)=>{
         craft=structuredClone(entry?.craft||emptyAssembly());mode='editor';json(res,200,state());return;
       }
       if(path==='/api/flight'){mode='flight';json(res,200,state());return;}
-      if(path==='/api/launch'){
+      if(path==='/api/launch'||path==='/api/launch-preview'){
         const next=validateCraft(input),issues=launchIssues(next);if(issues.length)throw Error(issues.join(' / '));
-        await changeControl(async()=>{sim=world.add(next);craft=next;await udp.retain(world.vehicles);mode='flight';});json(res,200,state());return;
+        const site=launchSiteId(input.site,isRover(next));
+        if(path==='/api/launch-preview'){json(res,200,world.launchPreview(next,site));return;}
+        if(input.recoverVehicleIds!==undefined&&(!Array.isArray(input.recoverVehicleIds)||input.recoverVehicleIds.some(id=>typeof id!=='string')))throw Error('回収する機体の指定が不正です');
+        await changeControl(async()=>{sim=world.add(next,{site,recoverVehicleIds:input.recoverVehicleIds as string[]|undefined});craft=next;await udp.retain(world.vehicles);mode='flight';});json(res,200,state());return;
       }
       if(path==='/api/control'){
         const enabled=input.enabled??true;

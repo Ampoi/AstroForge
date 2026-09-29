@@ -108,15 +108,13 @@ test('weather texture loads once, filters distant regions and disposes its GPU r
   let disposed=false;weather.map.addEventListener('dispose',()=>{disposed=true;});weather.dispose();assert.ok(disposed);
 });
 
-test('missing or invalid atlas keeps a valid clear texture and resolves initialization',async t=>{
-  const warnings=t.mock.method(console,'warn',()=>{});
+test('missing or invalid atlas keeps a valid clear texture and reports initialization failure',async t=>{
   const fetch=t.mock.method(globalThis,'fetch',async()=>new Response(null,{status:404}));
   for(const response of [new Response(null,{status:404}),new Response(new Uint8Array(12))]){
     fetch.mock.mockImplementation(async()=>response);
-    const weather=weatherTexture();await weather.ready;
+    const weather=weatherTexture();await assert.rejects(weather.ready,/Weather atlas:/);
     for(const face of weather.map.images){assert.equal(face.image.width,RENDER_WEATHER_SIZE);assert.equal(face.image.height,RENDER_WEATHER_SIZE);assert.ok(face.image.data.every(value=>value===0));}weather.dispose();
   }
-  assert.equal(warnings.mock.callCount(),2);
 });
 
 test('disposal while an atlas is loading cannot upload into the discarded texture',async t=>{

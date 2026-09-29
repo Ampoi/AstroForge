@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {makeRunway} from './runway.ts';
 
 /** Blender-authored scenery in metres, with the existing launch contact at Y=0.
  * The small apron is also the offline/loading fallback, so the vehicle never
@@ -13,6 +14,7 @@ export class LaunchSite extends THREE.Group {
   constructor() {
     super();
     this.name = 'Launch Complex 01';
+    this.add(makeRunway());
     this.userData.loadState = 'loading';
     const fallback = new THREE.Group();
     const material = new THREE.MeshStandardMaterial({color: '#aeb3af', roughness: .9});

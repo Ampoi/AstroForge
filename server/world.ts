@@ -1,8 +1,11 @@
 import {updateDocking,dockedTogether} from './docking.ts';
 import type {FlightSnapshot} from './types.ts';
 import type {Craft} from '../shared/types.ts';
+import {LAUNCH_SITES} from '../shared/launch-sites.ts';
+import type {LaunchOptions,LaunchPreview} from '../shared/launch-sites.ts';
+import {launchPlacement,fixedBounds,facilityBounds} from './launch-placement.ts';
 import {Simulation,STEP,EARTH} from './physics.ts';
-import {add,sub,mul,dot,norm,unit,rotate,axisAngle,cross,clamp,qmul,qconj} from '../shared/math.ts';
+import {add,sub,mul,dot,norm,unit,rotate,cross,clamp} from '../shared/math.ts';
 
 import {TIME_SCALES} from '../shared/time-scales.ts';
 export {TIME_SCALES} from '../shared/time-scales.ts';
@@ -40,16 +43,33 @@ export class FlightWorld{
   constructor(craft: Craft){this.time=0;this.timeScale=1;this.accumulator=0;this.slowFrames=0;this.vehicles=[];this.add(craft);}
   get bodies(){return this.vehicles.flatMap(flatten);}
   get active(){return this.vehicles.find(v=>v.id===this.activeId)!;}
-  add(craft: Craft){
-    const body=new Simulation(craft);body.environmentBodies=()=>this.bodies;
-    const rotation=axisAngle([0,0,1],EARTH.spin*this.time);
-    body.position=rotate(rotation,body.position);body.quaternion=qmul(rotation,body.quaternion);body.omega=rotate(qconj(body.quaternion),[0,0,EARTH.spin]);body.velocity=cross([0,0,EARTH.spin],body.position);
-    // Only an unlaunched pad occupant is replaced; existing flights keep running.
-    const occupant=this.vehicles.find(v=>v.status==='pad');
-    const nearPad=this.bodies.some(v=>v!==occupant&&alive(v)&&norm(sub(v.position,body.position))<v.stats.height+body.stats.height+4);
-    if(nearPad)throw Error('発射台付近に機体があります。離れるまでお待ちください');
-    const retained=this.vehicles.filter(v=>v!==occupant);
+  launchPreview(craft: Craft, requested?: unknown): LaunchPreview {
+    const {body,site}=launchPlacement(craft,requested,this.time),facility=facilityBounds(site);
+    const occupants=this.bodies.flatMap(v=>{
+      const {min,max}=fixedBounds(v,this.time);
+      const onSite=max[0]>=EARTH.radius+facility.height-5&&max[1]>=facility.east-facility.halfEast&&min[1]<=facility.east+facility.halfEast&&max[2]>=facility.north-facility.halfNorth&&min[2]<=facility.north+facility.halfNorth;
+      const grounded=min[0]-EARTH.radius<=facility.height+1;
+      const nearby=norm(sub(v.position,body.position))<v.stats.height+body.stats.height+4;
+      if(!(onSite&&grounded)&&!nearby)return [];
+      const speed=norm(sub(v.velocity,cross([0,0,EARTH.spin],v.position)));
+      return [{id:v.id,name:v.craft.name,recoverable:onSite&&grounded&&(v.status==='destroyed'||speed<2)}];
+    });
+    return {site,occupants};
+  }
+  add(craft: Craft, options: LaunchOptions={}){
+    const {body,site}=launchPlacement(craft,options.site,this.time);body.environmentBodies=()=>this.bodies;
+    const preview=this.launchPreview(craft,site),ids=options.recoverVehicleIds??[];
+    if(!Array.isArray(ids)||ids.some(id=>typeof id!=='string')||new Set(ids).size!==ids.length)throw Error('回収する機体の指定が不正です');
+    if(ids.some(id=>!preview.occupants.some(v=>v.id===id&&v.recoverable)))throw Error('回収対象が移動したか、回収できない状態です。配置先を再確認してください');
+    if(preview.occupants.some(v=>!ids.includes(v.id)))throw Error(`${LAUNCH_SITES[site].label}付近に機体があります。回収を選択するか、離れるまでお待ちください`);
+    const removed=new Set(ids);
+    // Recover only the selected bodies. Detached stages elsewhere keep running.
+    const remaining=(v:Simulation):Simulation[]=>removed.has(v.id)?v.debris.flatMap(remaining):[v];
+    const retained=this.vehicles.flatMap(remaining);
     if(retained.length>=12)throw Error('同時に配置できる機体は12機までです');
+    const prune=(v:Simulation)=>{v.debris=v.debris.flatMap(remaining);v.debris.forEach(prune);};
+    for(const v of this.bodies)if(removed.has(v.id))v.clearCommands();
+    retained.forEach(prune);
     body.createdAt=this.time;body.time=this.time;this.vehicles=[...retained,body];this.activeId=body.id;return body;
   }
   setTimeScale(scale: unknown){if(typeof scale!=='number'||!TIME_SCALES.includes(scale))throw Error(`倍率は${TIME_SCALES.join('・')}のいずれかです`);this.timeScale=scale;}

@@ -31,6 +31,7 @@ import {
   resolveAssemblyPlacement,
 } from "../shared/assembly.ts";
 import type {
+  Craft,
   Assembly,
   AssemblyPart,
   AssemblyPlacement,
@@ -38,6 +39,8 @@ import type {
   PartType,
 } from "../shared/types.ts";
 import type { AppState, ApiRoutes } from "../shared/api.ts";
+import {LAUNCH_SITES} from "../shared/launch-sites.ts";
+import type {LaunchSiteId, LaunchPreview} from "../shared/launch-sites.ts";
 import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
 import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
@@ -94,6 +97,7 @@ export function useWorkshop() {
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
     craftDialog = ref<HTMLDialogElement>(),
+    launchDialog = ref<HTMLDialogElement>(),
     vehicleMenu = ref<HTMLDetailsElement>();
   const craft = shallowRef<Assembly>(toAssembly(twoStageCraft())),
     selected = ref<string | null>(null),
@@ -448,35 +452,64 @@ export function useWorkshop() {
       toast(errorMessage(error));
     }
   }
-  async function launch() {
+  const launchCraft = shallowRef<Craft | null>(null);
+  const launchSite = ref<LaunchSiteId>('pad');
+  const launchPreview = shallowRef<LaunchPreview | null>(null);
+  const launchBusy = ref(false), launchChecking = ref(false), recoverOccupants = ref(false), launchError = ref('');
+  let previewRequest = 0;
+  async function refreshLaunchPreview() {
+    const request = ++previewRequest;
+    launchPreview.value = null;
+    recoverOccupants.value = false;
+    launchError.value = '';
+    if (!launchCraft.value) return;
+    launchChecking.value = true;
+    try {
+      const result = await api('/api/launch-preview', {...launchCraft.value, site: launchSite.value});
+      if (request === previewRequest) launchPreview.value = result;
+    } catch (error) {
+      if (request === previewRequest) launchError.value = errorMessage(error);
+    } finally {
+      if (request === previewRequest) launchChecking.value = false;
+    }
+  }
+  const canLaunch = computed(() => !launchBusy.value && !launchChecking.value && !!launchPreview.value &&
+    (!launchPreview.value.occupants.length || recoverOccupants.value && launchPreview.value.occupants.every(v => v.recoverable)));
+  function chooseLaunch(next: Craft) {
+    launchCraft.value = structuredClone(next);
+    launchSite.value = isRover(next) ? 'ground' : 'pad';
+    craftDialog.value?.close();
+    launchDialog.value?.showModal();
+    void refreshLaunchPreview();
+  }
+  function launch() {
     try {
       commitName();
       cancelPlacement();
-      const state = await api(
-        "/api/launch",
-        validateCraft(assembledCraft(craft.value)),
-      );
-      focusId.value = state.activeVehicleId;
-      applyState(state);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
-    } catch (error) {
-      toast(errorMessage(error));
-    }
+      chooseLaunch(validateCraft(assembledCraft(craft.value)));
+    } catch (error) { toast(errorMessage(error)); }
   }
-  async function launchSaved(id: string) {
-    const entry = latest.value?.library.find((v) => v.id === id);
-    if (!entry) return;
+  function launchSaved(id: string) {
+    const entry = latest.value?.library.find(v => v.id === id);
+    if (entry) chooseLaunch(entry.craft);
+  }
+  async function confirmLaunch() {
+    if (!canLaunch.value || !launchCraft.value || !launchPreview.value) return;
+    launchBusy.value = true;
     try {
-      const state = await api("/api/launch", entry.craft);
+      const state = await api('/api/launch', {...launchCraft.value, site: launchSite.value,
+        recoverVehicleIds: recoverOccupants.value ? launchPreview.value.occupants.map(v => v.id) : []});
       focusId.value = state.activeVehicleId;
       applyState(state);
       scene?.fit();
-      craftDialog.value?.close();
-      toast(`${isRover(state.craft) ? "地表" : "発射台"}に配置しました。機体一覧でUDPをONにすると接続できます`);
+      launchDialog.value?.close();
+      window.scrollTo({top: 0, behavior: 'smooth'});
+      toast(`${LAUNCH_SITES[launchSite.value].label}に配置しました。機体一覧でUDPをONにすると接続できます`);
     } catch (error) {
-      toast(errorMessage(error));
-    }
+      const message = errorMessage(error);
+      await refreshLaunchPreview();
+      launchError.value = message;
+    } finally { launchBusy.value = false; }
   }
   async function backToFlight() {
     try {
@@ -809,6 +842,7 @@ export function useWorkshop() {
     openEditor,
     launch,
     launchSaved,
+    LAUNCH_SITES, launchDialog, launchCraft, launchSite, launchPreview, launchBusy, launchChecking, recoverOccupants, launchError, canLaunch, refreshLaunchPreview, confirmLaunch,
     backToFlight,
     save,
     undo,

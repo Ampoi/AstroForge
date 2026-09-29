@@ -38,7 +38,7 @@ test('new vessels share Earth time while earlier flights survive and pad occupan
   const world=new FlightWorld(starterCraft()),first=world.active;first.status='flying';first.position=[EARTH.radius+1000,0,0];
   world.advance(.1,0);const second=world.add(twoStageCraft());
   assert.equal(world.vehicles.length,2);assert.equal(second.time,world.time);assert.equal(first.status,'flying');
-  second.status='flying';assert.throws(()=>world.add(starterCraft()),/発射台付近/);
+  second.status='flying';assert.throws(()=>world.add(starterCraft()),/発射場付近/);
 });
 test('strong ground impact creates finite moving pieces, preserves resources, and expires debris',()=>{
   const s=flying(starterCraft(),5);s.velocity=add(s.velocity,[-20,0,0]);

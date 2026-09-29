@@ -73,6 +73,7 @@ const {
   openEditor,
   launch,
   launchSaved,
+  LAUNCH_SITES, launchDialog, launchCraft, launchSite, launchPreview, launchBusy, launchChecking, recoverOccupants, launchError, canLaunch, refreshLaunchPreview, confirmLaunch,
   backToFlight,
   save,
   undo,
@@ -758,7 +759,7 @@ function closeOnBackdrop(event: MouseEvent) {
             :disabled="!connected || !!issues.length"
             @click="launch"
           >
-            <span>{{ isRover(active) ? "地表へ" : "発射台へ" }}</span><span>↗</span>
+            <span>配置先を選ぶ</span><span>↗</span>
           </button>
           <p v-if="isRover(active)">車輪名を指定して駆動・操舵・制動を操作します。<a href="/docs/rover" target="_blank" rel="noreferrer">ローバーの操作方法 ↗</a></p>
           <p v-else>
@@ -859,8 +860,8 @@ function closeOnBackdrop(event: MouseEvent) {
       <div>
         <span>02</span>
         <p>
-          <strong>発射台に配置する</strong
-          >「発射台へ」を押し、機体一覧でUDPをONにします。⌂ボタンで発射場と周辺施設を見渡せます。
+          <strong>発射場・滑走路に配置する</strong
+          >「配置先を選ぶ」で発射場・滑走路・地表を選び、機体一覧でUDPをONにします。⌂ボタンで発射場と周辺施設を見渡せます。
         </p>
       </div>
       <div>
@@ -931,10 +932,39 @@ function closeOnBackdrop(event: MouseEvent) {
             class="library-launch"
             @click="launchSaved(entry.id)"
           >
-            {{ isRover(entry.craft) ? "地表へ" : "発射台へ" }} ↗
+            配置先を選ぶ ↗
           </button>
         </div>
       </div>
     </div>
+  </dialog>
+  <dialog id="launch-dialog" ref="launchDialog" @cancel="launchBusy && $event.preventDefault()">
+    <div class="dialog-heading">
+      <div><span class="eyebrow">LAUNCH LOCATION</span><h2>配置先を選ぶ</h2></div>
+      <button class="icon-button" aria-label="配置をキャンセル" :disabled="launchBusy" @click="launchDialog?.close()">×</button>
+    </div>
+    <p class="help-note">{{ launchCraft?.name }} · 配置後の点火・走行は機体の操作で行います。</p>
+    <label class="launch-site-select">配置先
+      <select v-model="launchSite" :disabled="launchBusy" @change="refreshLaunchPreview">
+        <option v-for="(site, id) in LAUNCH_SITES" :key="id" :value="id">{{ site.label }}</option>
+      </select>
+    </label>
+    <p class="help-note">{{ LAUNCH_SITES[launchSite].description }}</p>
+    <p v-if="launchChecking" role="status">配置先を確認中…</p>
+    <div v-else-if="launchPreview?.occupants.length" class="launch-occupants">
+      <strong>配置先に機体があります</strong>
+      <ul><li v-for="vehicle in launchPreview.occupants" :key="vehicle.id">{{ vehicle.name }} <small>({{ vehicle.id.slice(0, 8) }})</small> · {{ vehicle.recoverable ? '回収可能' : '移動中・上空のため回収不可' }}</li></ul>
+      <label v-if="launchPreview.occupants.every(v => v.recoverable)">
+        <input v-model="recoverOccupants" type="checkbox" :disabled="launchBusy"> 上記の機体を回収して配置する
+      </label>
+      <p class="help-note">回収した機体の飛行状態とUDP接続は終了します。保存済みの設計は残ります。</p>
+    </div>
+    <p v-else-if="launchPreview" class="help-note">配置先は空いています。</p>
+    <p v-if="launchError" class="launch-error" role="alert">{{ launchError }}</p>
+    <div class="secondary-actions">
+      <button :disabled="launchBusy || launchChecking" @click="refreshLaunchPreview">配置先を再確認</button>
+      <button :disabled="launchBusy" @click="launchDialog?.close()">キャンセル</button>
+    </div>
+    <button id="confirm-launch-button" class="primary-button" :disabled="!canLaunch" @click="confirmLaunch">{{ launchBusy ? '配置中…' : recoverOccupants ? '回収して配置' : 'ここに配置' }} <span>↗</span></button>
   </dialog>
 </template>

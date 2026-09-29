@@ -1,5 +1,6 @@
 /** Fixed, Earth-sized fictional planet. Coordinates are Earth-fixed: +X is
  * launch zenith, +Y east, +Z north. All elevations are metres above sea level. */
+import {RUNWAY} from './launch-sites.ts';
 export const PLANET_RADIUS=6371000;
 export const PLANET_SPIN=7.292115e-5;
 export const TERRAIN_SEED=73129;
@@ -61,6 +62,7 @@ export function terrainHeight(lon:number,lat:number){
 /** Solid launch apron/deck surfaces, matching makeLaunchSite (the flame duct is open).
  * Buildings and decorative service equipment are not terrain colliders. */
 export function launchDeckHeight(east:number,north:number):number{
+  if(Math.abs(east-RUNWAY.east)<=RUNWAY.length/2&&Math.abs(north-RUNWAY.north)<=RUNWAY.width/2)return RUNWAY.height;
   if(Math.abs(east)>46||Math.abs(north)>46)return -Infinity;
   if(Math.abs(north)<=6.5&&Math.abs(east)>=1.5&&Math.abs(east)<=12.5||Math.abs(east)<=1.5&&north>=-6.5&&north<=-2.5)return 0;
   return -.845;

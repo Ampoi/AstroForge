@@ -47,6 +47,7 @@ export class Simulation{
   engines: Record<string,EngineCommand>={}; rcs: Record<string,RcsCommand>={};
   wheels: Record<string,WheelCommand>={}; wheelStates: WheelState[]=[];
   get rover(){return isRover(this.craft);}
+  surfaceLaunch=false;
   flight: FlightCommand | null=null; wrench: WrenchCommand | null=null;
 
   constructor(craft: Craft,{kernel=physicsKernel}={}){this.kernel=kernel;this.reset(craft);}
@@ -56,6 +57,7 @@ export class Simulation{
     this.tankFuel=Object.fromEntries(tanks.map(p=>[p.id,capacity?clamp(value,0,capacity)/tanks.length:0]));
   }
   reset(craft: Craft){
+    this.surfaceLaunch=false;
     this.id=randomUUID();this.createdAt=0;this.destroyedAt=null;this.impact=null;this.craft=structuredClone(craft);this.joints={};this.motors={};this.selectedDockingCamera=null;this.stats=craftStats(craft);this.fuel=this.stats.fuel;this.mono=this.stats.mono;this.charge=this.stats.power;
     this.time=0;this.status='pad';this.maxAltitude=0;this.maxQ=0;this.trail=[];this.events=[];this.debris=[];this.separations=[];this.passive=false;
     this.props=this.updateMass();this.padHeight=this.props.com[0];
@@ -203,7 +205,7 @@ export class Simulation{
   }
   step(dt=STEP,now=this.time){
     // Suspension contact needs smaller fixed steps, including under time warp.
-    if(this.rover&&dt>1/240+1e-10){const n=Math.ceil(dt/(1/240));for(let i=0;i<n;i++)this.step(dt/n,now);return;}
+    if((this.rover||this.surfaceLaunch)&&dt>1/240+1e-10){const n=Math.ceil(dt/(1/240));for(let i=0;i<n;i++)this.step(dt/n,now);return;}
 
     for(const debris of this.debris)debris.step(dt,now);
     this.debris=this.debris.filter(d=>!d.expiresAt||d.time<d.expiresAt);
@@ -222,7 +224,7 @@ export class Simulation{
     }
     this.props=this.updateMass();
     const a=this.actuation(now,dt),props=this.props;
-    if(this.rover){
+    if(this.rover||this.surfaceLaunch){
       const ground=roverForces(this,dt,now);this.wheelStates=ground.states;
       if(this.destroyedAt!==null){this.time+=dt;return;}
       a.force=add(a.force,ground.force);a.torque=add(a.torque,ground.torque);
@@ -232,8 +234,8 @@ export class Simulation{
     const start=[...this.position,...this.velocity,...this.quaternion,...this.omega];
     if(this.status==='pad'&&a.thrust>props.mass*norm(gravity(this.position))){this.status='flying';this.event('LIFTOFF — 発射台を離れました');}
     if(this.status==='pad'){
-      const spin=EARTH.spin*(this.time+dt);this.position=[(EARTH.radius+this.padHeight)*Math.cos(spin),(EARTH.radius+this.padHeight)*Math.sin(spin),0];
-      this.velocity=cross([0,0,EARTH.spin],this.position);this.quaternion=axisAngle([0,0,1],spin);this.omega=[0,0,EARTH.spin];
+      const rotation=axisAngle([0,0,1],EARTH.spin*dt);this.position=rotate(rotation,this.position);this.quaternion=qmul(rotation,this.quaternion);
+      this.velocity=cross([0,0,EARTH.spin],this.position);this.omega=rotate(qconj(this.quaternion),[0,0,EARTH.spin]);
       this.acceleration=cross([0,0,EARTH.spin],this.velocity);this.angularAcceleration=[0,0,0];
     }else{
       // Symmetric perturbation kicks share the map's Sun/Moon force model.
@@ -258,7 +260,7 @@ export class Simulation{
       }
       const groundHeight=norm(this.position)-EARTH.radius-contactExtent<=TERRAIN_MAX_HEIGHT?surfaceHeight(this.position,this.time+dt):0;
       const lowest=norm(this.position)-EARTH.radius-groundHeight-contactExtent;
-      if(!this.rover&&lowest<=0){
+      if(!this.rover&&!this.surfaceLaunch&&lowest<=0){
         const impact=norm(sub(this.velocity,cross([0,0,EARTH.spin],this.position)));
         if(impact>=8){this.time+=dt;this.impactDamage(impact);return;}
         this.status=impact<4&&dot(up,nose)>.95?'landed':'crashed';this.clearCommands();

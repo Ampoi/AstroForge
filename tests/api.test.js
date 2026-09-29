@@ -32,7 +32,7 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   assert.equal(s.connection.physicsBackend,process.env.ASTROFORGE_PHYSICS==='js'?'js':'zig-wasm');
   // Production serves Vite output and public assets; application source is not a static endpoint.
   const homepage=await fetch(`http://127.0.0.1:${port}/`);assert.equal(homepage.status,200);
-  const html=await homepage.text();assert.match(html,/<div id="app"><\/div>/);assert.doesNotMatch(html,/importmap|\/src\//);
+  const html=await homepage.text();assert.match(html,/<div id="app">/);assert.doesNotMatch(html,/importmap|\/src\//);
   const bundle=html.match(/src="([^"]+\.js)"/);assert.ok(bundle);
   const asset=await fetch(`http://127.0.0.1:${port}${bundle[1]}`);assert.equal(asset.status,200);assert.match(asset.headers.get('content-type'),/javascript/);
   const bundleText=await asset.text(),wasmPath=bundleText.match(/assets\/exhaust-[a-zA-Z0-9_-]+\.wasm/);assert.ok(wasmPath);
@@ -81,7 +81,8 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   assert.deepEqual(s.vehicles.find(v=>v.id===secondId).udp.session,second.session);
   s=await post('control',{vehicleId:firstId,enabled:true});assert.ok(s.connection.session.runtimeGeneration>session.runtimeGeneration);
   assert.equal(s.connection.commandPort,commandPort);assert.equal(s.connection.authority.state,0);
-  send({type:'pylon_control_authority_command',action:'acquire',priority:10,leaseDurationSeconds:10,suppressSas:true});await delay(60);
+  send({type:'pylon_control_authority_command',action:'acquire',priority:10,leaseDurationSeconds:10,suppressSas:true});
+  for(let i=0;i<50&&!packets.some(p=>p.reason==='runtime_session_mismatch');i++)await delay(20);
   assert.ok(packets.some(p=>p.reason==='runtime_session_mismatch'));
   const response=await fetch(`http://127.0.0.1:${port}/api/events`);assert.match(response.headers.get('content-type'),/text\/event-stream/);
   const reader=response.body.getReader(),first=await reader.read();assert.match(new TextDecoder().decode(first.value),/data:.*"vehicles"/);await reader.cancel();
@@ -99,12 +100,14 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   }
   assert.equal(configurations,1);await compactReader.cancel();
   // Replacing the pad craft closes its UDP endpoint without touching the flight.
-  s=await post('launch',starterCraft());assert.ok(!s.vehicles.some(v=>v.id===secondId));
+  await post('launch',starterCraft(),400);
+  const preview=await post('launch-preview',starterCraft());assert.deepEqual(preview.occupants.map(v=>v.id),[secondId]);assert.equal(preview.occupants[0].recoverable,true);
+  s=await post('launch',{...starterCraft(),recoverVehicleIds:[secondId]});assert.ok(!s.vehicles.some(v=>v.id===secondId));
   assert.equal(s.vehicles.find(v=>v.id===firstId).udp.enabled,true);
   const freed=dgram.createSocket('udp4');freed.bind(second.commandPort,'127.0.0.1');await once(freed,'listening');freed.close();
   // The part menu sends the same leased commands through HTTP as UDP clients.
   const articulated=starterCraft();articulated.parts.splice(1,0,{id:'gui_slide',type:'linear'});
-  s=await post('launch',articulated);await post('time-scale',{scale:1});
+  s=await post('launch',{...articulated,recoverVehicleIds:[s.activeVehicleId]});await post('time-scale',{scale:1});
   const guiId=s.activeVehicleId;
   await post('part-command',{vehicleId:guiId,command:{}},400);
   s=await post('control',{vehicleId:guiId,enabled:true});
@@ -123,6 +126,22 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   assert.equal((await gui({type:'pylon_control_authority_command',action:'release'})).accepted,true);
   await post('control',{vehicleId:guiId,enabled:false});await post('control',{vehicleId:guiId,enabled:true});
   assert.equal((await gui(motor)).reason,'runtime_session_mismatch');
+  // A runway launch coexists with the launch-pad vehicle. Recovery closes only its own endpoint.
+  const padId=s.activeVehicleId;
+  for(const site of ['invalid',null,{},1])await post('launch',{...starterCraft(),site},400);
+  await post('launch',{...starterCraft(),site:'runway',recoverVehicleIds:true},400);
+  s=await post('launch',{...starterCraft(),site:'runway'});const runwayId=s.activeVehicleId;
+  assert.ok(s.vehicles.some(v=>v.id===padId));
+  assert.ok(s.flight.upBody[2]>.99,'runway vehicle is horizontal');
+  s=await post('control',{vehicleId:runwayId,enabled:true});const runwayPort=s.connection.commandPort;
+  await post('launch',{...starterCraft(),site:'runway'},400);
+  const runwayPreview=await post('launch-preview',{...starterCraft(),site:'runway'});
+  assert.deepEqual(runwayPreview.occupants.map(v=>v.id),[runwayId]);
+  await post('launch',{...starterCraft(),site:'runway',recoverVehicleIds:[padId]},400);
+  s=await post('launch',{...starterCraft(),site:'runway',recoverVehicleIds:[runwayId]});
+  assert.ok(s.vehicles.some(v=>v.id===padId));assert.ok(!s.vehicles.some(v=>v.id===runwayId));
+  const runwayFreed=dgram.createSocket('udp4');runwayFreed.bind(runwayPort,'127.0.0.1');await once(runwayFreed,'listening');runwayFreed.close();
+  await post('launch',{...starterCraft(),site:'runway',recoverVehicleIds:[runwayId]},400);
   await post('editor',{});await post('part-command',{vehicleId:guiId,command:motor},400);
   s=await post('revert',{});assert.equal(s.vehicles.length,1);assert.equal(s.connection.enabled,false);
   await stop();await start();s=await get();assert.equal(s.library.find(e=>e.id===saved1.libraryId).craft.name,'Updated one');assert.equal(s.library.find(e=>e.id===saved2.libraryId).craft.name,'Saved two');assert.equal(s.craft.name,'Updated one');
