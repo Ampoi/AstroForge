@@ -1,17 +1,41 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onUnmounted, ref, shallowRef, watch } from 'vue';
 import PartControls from './PartControls.vue';
 import { canControlPart } from '../part-controls.ts';
 import type { UdpState } from '../../shared/api.ts';
 import { PARTS } from '../../shared/craft.ts';
 import type { Part } from '../../shared/types.ts';
 import type { FlightSnapshot } from '../../server/types.ts';
-import { partApiLink, partInfoRows, type PartInfoSettings } from '../part-info.ts';
+import { partApiLink, partInfoRows, type PartInfoSettings, type PartProjection } from '../part-info.ts';
 const props = defineProps<{
   parts: Part[]; flight?: Pick<FlightSnapshot, 'engines' | 'wheels' | 'joints'> | null;
-  settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
+  projection: PartProjection; settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
   udp?: UdpState; unavailable: boolean; sendCommand: (command: Record<string, unknown>) => Promise<void>;
 }>();
+const selectedCard = shallowRef<HTMLElement | null>(null);
+const cardBounds = ref({left:0,top:0,width:0,height:0});
+let cardObserver: ResizeObserver | undefined;
+watch(selectedCard, card => {
+  cardObserver?.disconnect();
+  cardBounds.value={left:0,top:0,width:0,height:0};
+  if (!card) return;
+  const measure = () => { cardBounds.value={left:card.offsetLeft,top:card.offsetTop,width:card.offsetWidth,height:card.offsetHeight}; };
+  measure();
+  cardObserver=new ResizeObserver(measure);
+  cardObserver.observe(card);
+}, {flush:'post'});
+onUnmounted(()=>cardObserver?.disconnect());
+const leader = computed(() => {
+  const anchor=props.projection.anchors.find(point=>point.id===props.selected);
+  const card=cardBounds.value;
+  if (!anchor || !card.width || !card.height) return null;
+  const left=anchor.x < card.left;
+  const endX=left ? card.left : card.left+card.width;
+  const inset=Math.min(24,card.height/2);
+  const endY=Math.max(card.top+inset,Math.min(card.top+card.height-inset,anchor.y));
+  const elbowX=endX+(left ? -18 : 18);
+  return {...anchor,path:`M ${anchor.x} ${anchor.y} L ${elbowX} ${endY} L ${endX} ${endY}`};
+});
 const emit = defineEmits<{ select: [id: string | null]; copy: [id: string]; enable: [] }>();
 const entries = computed(() => new Map(props.parts.map(part => {
   const rows = partInfoRows(part, props.flight).filter(row => props.settings[row.key]);
@@ -24,8 +48,13 @@ const labels = computed(() => [...entries.value.values()]
 </script>
 <template>
   <div v-if="labels.length" class="sidebar-part-info" :class="{ 'has-summary': labels.some(label => label.id !== selected) }" aria-label="パーツ情報">
+    <Teleport to="#part-selection-layer">
+      <svg v-if="leader" class="part-leaders" aria-hidden="true">
+        <g class="selected"><path :d="leader.path" /><circle :cx="leader.x" :cy="leader.y" r="3" /></g>
+      </svg>
+    </Teleport>
     <Teleport v-for="label in labels" :key="label.id" to="#part-selection-layer" :disabled="label.id !== selected">
-    <section class="part-callout" :class="{ selected: label.id === selected }"
+    <section :ref="label.id === selected ? (node) => { selectedCard = node as HTMLElement | null } : undefined" class="part-callout" :class="{ selected: label.id === selected }"
       :data-part-id="label.id">
       <template v-if="label.id === selected">
         <div class="part-callout-heading"><strong>PART INFO</strong><button aria-label="パーツ選択を解除" @click="emit('select', null)">×</button></div>

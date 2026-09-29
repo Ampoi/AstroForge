@@ -46,7 +46,7 @@ import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
 import { afterPaint, createLoadingProgress, type LoadingReporter } from "./loading.ts";
 import { RocketScene } from "./scene.ts";
-import { defaultPartInfoSettings, restorePartInfoSettings } from './part-info.ts';
+import { defaultPartInfoSettings, restorePartInfoSettings, type PartProjection } from './part-info.ts';
 import { PartController } from './part-controls.ts';
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
@@ -93,6 +93,7 @@ export function useWorkshop() {
 
   const partController = new PartController(`gui-${crypto.randomUUID()}`, crypto.randomUUID());
   const partInfoSettings = ref({ ...defaultPartInfoSettings });
+  const partProjection = shallowRef<PartProjection>({width:0,height:0,anchors:[]});
   const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
@@ -726,6 +727,9 @@ export function useWorkshop() {
       );
       reportLoading("scene",1);
       scene.setFrameRate(displayRate.value);
+      scene.onPartProjection = value => {
+        if (value.anchors.length || partProjection.value.anchors.length) partProjection.value = value;
+      };
       const decoder = new StateStreamDecoder();
       stream = new EventSource("/api/events?compact=1");
       stream.addEventListener('configuration', event => {
@@ -782,7 +786,7 @@ export function useWorkshop() {
   });
   return {
     loading, reload,
-    partInfoSettings, copyPartId, sendPartCommand,
+    partInfoSettings, partProjection, copyPartId, sendPartCommand,
     displayRate,
     renderFps,
     frameRates,

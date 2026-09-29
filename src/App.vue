@@ -11,7 +11,7 @@ const development=import.meta.env.DEV;
 const renderModeLink=new URL(window.location.href);
 renderModeLink.searchParams.set('render',lightweightPreview?'full':'preview');
 const {
-  partInfoSettings, copyPartId, sendPartCommand,
+  partInfoSettings, partProjection, copyPartId, sendPartCommand,
   displayRate,
   renderFps,
   frameRates,
@@ -386,7 +386,7 @@ function closeOnBackdrop(event: MouseEvent) {
             <fieldset><legend>表示項目</legend>
               <label v-for="field in partInfoFields" :key="field.key"><input v-model="partInfoSettings[field.key]" type="checkbox" /> {{ field.label }}</label>
             </fieldset>
-            <p>選択したパーツのID・操作・API資料を3D画面の左側に表示します。</p>
+            <p>選択したパーツから引き出し線をつなぎ、ID・操作・API資料を3D画面の左側に表示します。</p>
           </div>
         </details>
         <details class="display-settings">
@@ -506,7 +506,7 @@ function closeOnBackdrop(event: MouseEvent) {
       </div>
       </div>
       <PartOverlay :parts="flying ? focused?.craft.parts ?? [] : craft.parts" :flight="flying ? focused : null"
-        :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
+        :projection="partProjection" :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
         :udp="focused?.udp" :unavailable="!focused || focused.passive || ['landed','crashed','destroyed'].includes(focused.status)" :send-command="sendPartCommand"
         @enable="focused && toggleUdp(focused.id)" @select="selectPart" @copy="copyPartId" />
     <details id="parts-panel" class="sidebar-library" :hidden="flying" open>
