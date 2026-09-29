@@ -41,8 +41,9 @@ import type { AppState, ApiRoutes } from "../shared/api.ts";
 import {StateStreamDecoder, type StreamFrame} from '../shared/state-stream.ts';
 import {attachmentFace,faceLabel,matchingFaces} from '../shared/attachment.ts';
 import { errorMessage } from "../shared/errors.ts";
+import { afterPaint, createLoadingProgress, type LoadingReporter } from "./loading.ts";
 import { RocketScene } from "./scene.ts";
-import { defaultPartInfoSettings, restorePartInfoSettings, type PartProjection } from './part-info.ts';
+import { defaultPartInfoSettings, restorePartInfoSettings } from './part-info.ts';
 import { PartController } from './part-controls.ts';
 import { frameRate, frameRates, type FrameRate } from "./display.ts";
 
@@ -79,9 +80,16 @@ export async function api<K extends keyof ApiRoutes>(
   return result as ApiRoutes[K]["output"];
 }
 export function useWorkshop() {
+  const loading = ref({active:true,progress:0,label:'パーツモデルとサムネイルを準備しています',error:''});
+  const updateLoading = createLoadingProgress();
+  const reportLoading:LoadingReporter = (stage, progress) => {
+    if (loading.value.active && !loading.value.error) Object.assign(loading.value, updateLoading(stage, progress));
+  };
+  const reload = () => window.location.reload();
+  let disposed = false;
+
   const partController = new PartController(`gui-${crypto.randomUUID()}`, crypto.randomUUID());
   const partInfoSettings = ref({ ...defaultPartInfoSettings });
-  const partProjection = shallowRef<PartProjection>({width:0,height:0,anchors:[]});
   const displayRate = ref<FrameRate>('display'), renderFps = ref(0);
   const sceneElement = ref<HTMLElement>(),
     helpDialog = ref<HTMLDialogElement>(),
@@ -602,10 +610,10 @@ export function useWorkshop() {
     catch { toast('コピーできませんでした。表示されたIDを選択してコピーしてください'); }
   }
   watch(partInfoSettings, value => {
-    if (scene) scene.showPartInfo = value.enabled;
     try { localStorage.setItem('astroforge-part-info', JSON.stringify(value)); } catch {}
   }, {deep:true});
   function keydown(event: KeyboardEvent) {
+    if (loading.value.active) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (
@@ -664,9 +672,13 @@ export function useWorkshop() {
     (value) => document.body.classList.toggle("flight-mode", value),
     { immediate: true },
   );
-  onMounted(() => {
+  onMounted(async () => {
     try { partInfoSettings.value = restorePartInfoSettings(JSON.parse(localStorage.getItem('astroforge-part-info') ?? 'null')); } catch {}
     try { displayRate.value = frameRate(localStorage.getItem('astroforge-frame-rate')); } catch {}
+    reportLoading("models",1);
+    reportLoading("scene",0);
+    await afterPaint();
+    if (disposed) return;
     try {
       scene = new RocketScene(
         sceneElement.value!,
@@ -676,37 +688,58 @@ export function useWorkshop() {
           placement.value = where;
           preview.value = draft ?? null;
         },
+        reportLoading,
+        true,
       );
+      reportLoading("scene",1);
       scene.setFrameRate(displayRate.value);
-      scene.showPartInfo = partInfoSettings.value.enabled;
-      scene.onPartProjection = value => {
-        if (value.anchors.length || partProjection.value.anchors.length) partProjection.value = value;
+      const decoder = new StateStreamDecoder();
+      stream = new EventSource("/api/events?compact=1");
+      stream.addEventListener('configuration', event => {
+        decoder.configuration = JSON.parse((event as MessageEvent).data);
+      });
+      stream.onopen = () => (connected.value = true);
+      stream.onerror = () => (connected.value = false);
+      reportLoading('state',0);
+      let resolveState:()=>void=()=>{};
+      const stateReady = new Promise<void>(resolve => { resolveState=resolve; });
+      stream.onmessage = (event) => {
+        try {
+          applyState(decoder.decode(JSON.parse(event.data) as StreamFrame));
+          reportLoading("state",1);
+          resolveState();
+        } catch (error) {
+          console.error(error);
+        }
       };
+      fpsTimer = setInterval(() => {
+        renderFps.value = scene?.fps ?? 0;
+        mapPredictionStatus.value=scene?.solarMap.predictionStatus??"";
+      }, 1000);
+      document.addEventListener("keydown", keydown);
+      let timeout:ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          (async () => {
+            await Promise.all([scene!.ready, stateReady]);
+            if (disposed) return;
+            await scene!.prepare(reportLoading);
+            if (!disposed && !loading.value.error) loading.value.active=false;
+          })(),
+          new Promise<never>((_,reject) => { timeout=setTimeout(() => reject(new Error('読み込みがタイムアウトしました。サーバー接続と3Dデータを確認してください。')),120000); }),
+        ]);
+      } finally { clearTimeout(timeout); }
     } catch (error) {
-      sceneError.value = true;
+      if (disposed) return;
+      sceneError.value=true;
+      loading.value.error=errorMessage(error);
+      scene?.dispose();
+      scene=undefined;
       console.error(error);
     }
-    const decoder = new StateStreamDecoder();
-    stream = new EventSource("/api/events?compact=1");
-    stream.addEventListener('configuration', event => {
-      decoder.configuration = JSON.parse((event as MessageEvent).data);
-    });
-    stream.onopen = () => (connected.value = true);
-    stream.onerror = () => (connected.value = false);
-    stream.onmessage = (event) => {
-      try {
-        applyState(decoder.decode(JSON.parse(event.data) as StreamFrame));
-      } catch (error) {
-        console.error(error);
-      }
-    };
-    fpsTimer = setInterval(() => {
-      renderFps.value = scene?.fps ?? 0;
-      mapPredictionStatus.value=scene?.solarMap.predictionStatus??"";
-    }, 1000);
-    document.addEventListener("keydown", keydown);
   });
   onUnmounted(() => {
+    disposed=true;
     stream?.close();
     clearInterval(fpsTimer);
     clearTimeout(toastTimer);
@@ -715,7 +748,8 @@ export function useWorkshop() {
     document.body.classList.remove("flight-mode");
   });
   return {
-    partInfoSettings, partProjection, copyPartId, sendPartCommand,
+    loading, reload,
+    partInfoSettings, copyPartId, sendPartCommand,
     displayRate,
     renderFps,
     frameRates,

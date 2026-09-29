@@ -1,42 +1,35 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import PartControls from './PartControls.vue';
 import { canControlPart } from '../part-controls.ts';
 import type { UdpState } from '../../shared/api.ts';
 import { PARTS } from '../../shared/craft.ts';
 import type { Part } from '../../shared/types.ts';
 import type { FlightSnapshot } from '../../server/types.ts';
-import { layoutPartCallouts, partApiLink, partInfoRows, type PartInfoSettings, type PartProjection } from '../part-info.ts';
+import { partApiLink, partInfoRows, type PartInfoSettings } from '../part-info.ts';
 const props = defineProps<{
   parts: Part[]; flight?: Pick<FlightSnapshot, 'engines' | 'wheels' | 'joints'> | null;
-  projection: PartProjection; settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
+  settings: PartInfoSettings; selected: string | null; flying: boolean; connected: boolean;
   udp?: UdpState; unavailable: boolean; sendCommand: (command: Record<string, unknown>) => Promise<void>;
 }>();
+const panel = ref<HTMLElement>();
+function revealSelection(){if(props.selected)panel.value?.querySelector('.selected')?.scrollIntoView({block:'nearest'});}
+onMounted(revealSelection);
+watch(()=>props.selected,revealSelection,{flush:'post'});
 const emit = defineEmits<{ select: [id: string | null]; copy: [id: string]; enable: [] }>();
 const entries = computed(() => new Map(props.parts.map(part => {
   const rows = partInfoRows(part, props.flight).filter(row => props.settings[row.key]);
   return [part.id, { part, rows }];
 })));
-const labels = computed(() => {
-  const heights = new Map<string, number>();
-  for (const [id, { rows, part }] of entries.value) {
-    if (id === props.selected) heights.set(id, 192 + rows.filter(r => r.key !== 'id' && r.key !== 'name').length * 20 + (canControlPart(part) ? 360 : 0));
-    else if (props.settings.enabled && rows.length) heights.set(id, 16 + rows.length * 20);
-  }
-  return layoutPartCallouts(props.projection, heights, props.selected, props.flying).map(label => ({ ...label, ...entries.value.get(label.id)! }));
-});
-const hiddenCount = computed(() => props.settings.enabled ? Math.max(0, props.projection.anchors.filter(a => entries.value.get(a.id)?.rows.length).length - labels.value.length) : 0);
+const labels = computed(() => [...entries.value.values()]
+  .filter(({ part, rows }) => part.id === props.selected || (props.settings.enabled && rows.length))
+  .sort((a, b) => Number(b.part.id === props.selected) - Number(a.part.id === props.selected))
+  .map(entry => ({ ...entry, id: entry.part.id })));
 </script>
 <template>
-  <div class="part-overlay" aria-label="パーツ情報オーバーレイ">
-    <svg class="part-leaders" aria-hidden="true">
-      <g v-for="label in labels" :key="label.id" :class="{ selected: label.id === selected }">
-        <path :d="`M ${label.x} ${label.y} L ${(label.x + label.endX) / 2} ${label.y} L ${label.endX} ${label.endY}`" />
-        <circle :cx="label.x" :cy="label.y" r="3" />
-      </g>
-    </svg>
+  <div v-if="labels.length" ref="panel" class="sidebar-part-info" aria-label="パーツ情報">
     <section v-for="label in labels" :key="label.id" class="part-callout" :class="{ selected: label.id === selected }"
-      :data-part-id="label.id" :style="{ left: `${label.left}px`, top: `${label.top}px`, width: `${label.width}px`, height: `${label.height}px` }">
+      :data-part-id="label.id">
       <template v-if="label.id === selected">
         <div class="part-callout-heading"><strong>PART INFO</strong><button aria-label="パーツ選択を解除" @click="emit('select', null)">×</button></div>
         <strong class="part-callout-name">{{ PARTS[label.part.type].name }}</strong>
@@ -55,6 +48,5 @@ const hiddenCount = computed(() => props.settings.enabled ? Math.max(0, props.pr
         <dl v-for="row in label.rows" :key="row.key" class="part-info-row"><dt>{{ row.label }}</dt><dd :title="row.value">{{ row.value }}</dd></dl>
       </button>
     </section>
-    <p v-if="hiddenCount" class="part-overlay-overflow">ほか {{ hiddenCount }} パーツ · 拡大／選択で詳細</p>
   </div>
 </template>

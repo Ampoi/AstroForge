@@ -5,7 +5,7 @@ export const WEATHER_FACE_SIZE=WEATHER_DETAIL_SIZE;
 /** RGB are low/middle/high cloud fractions; A blends shallow vs tall low clouds.
  * All layers share a fixed Earth-relative snapshot. No weather generation or
  * network polling happens in the render loop. */
-export function weatherTexture(){
+export function weatherTexture(onProgress:(progress:number)=>void=()=>{}){
   // Flight can render before fetch completes. Cube faces must retain their
   // dimensions after the first GPU upload, including all generated mip levels.
   const clear=new Uint8Array(WEATHER_FACE_SIZE*WEATHER_FACE_SIZE*4);
@@ -18,6 +18,7 @@ export function weatherTexture(){
   }).then(async buffer=>{
     if(buffer.byteLength!==WEATHER_SOURCE_SIZE**2*6*4)throw Error('Weather atlas: invalid dimensions');
     if(disposed)return;
+    onProgress(.25);
     let data:Uint8Array;
     if(typeof Worker==='undefined')data=enhanceWeather(new Uint8Array(buffer));
     else{
@@ -33,6 +34,7 @@ export function weatherTexture(){
     }
     const faceBytes=WEATHER_FACE_SIZE*WEATHER_FACE_SIZE*4;
     map.images=Array.from({length:6},(_,face)=>new THREE.DataTexture(data.subarray(face*faceBytes,(face+1)*faceBytes),WEATHER_FACE_SIZE,WEATHER_FACE_SIZE,THREE.RGBAFormat));map.needsUpdate=true;
-  }).catch(error=>console.warn('Cloud weather:',error.message));
+    onProgress(1);
+  });
   return {map,ready,dispose(){disposed=true;worker?.terminate();finish();map.dispose();}};
 }

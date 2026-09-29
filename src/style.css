@@ -146,3 +146,71 @@ body:not(.flight-mode) .view-tools .icon-button{background:#15242deb;border-colo
 .map-focus-label{display:flex;align-items:center;gap:10px;font-size:11px}
 .map-focus-label select{max-width:240px;background:#142937;color:#e0edf1;border:1px solid #456373;border-radius:4px;padding:7px}
 .orbit-keys{display:flex;flex-wrap:wrap;gap:14px}.orbit-legend .celestial-key:before{border-top:2px dashed #79c7ef}.orbit-legend small{color:#9bb1bf;font-size:9px}
+
+/* Both workspaces share a clear canvas and one scrollable control column. */
+body .workspace.console-layout{display:grid;grid-template-columns:minmax(0,1fr) min(390px,42vw);height:100dvh;min-height:0;overflow:hidden}
+body .console-layout .viewport{grid-column:1;grid-row:1;width:100%;height:100%;min-height:0}
+body .console-layout .right-panel{grid-column:2;grid-row:1;display:flex;flex-direction:column;gap:0;height:100%;min-width:0;overflow:auto;border-left:1px solid var(--line);border-top:0;padding:0 0 16px;scrollbar-gutter:stable}
+.console-layout .right-panel>*{flex-shrink:0;min-width:0}
+body .console-layout .universal-clock{position:static;display:flex;justify-content:space-between;margin:0;padding:18px 20px;border-bottom:1px solid var(--line);font-size:18px;background:none;text-shadow:none}
+.sidebar-controls{display:flex;flex-direction:column;gap:14px;padding:18px}
+body .console-layout .scene-top,body .console-layout .build-toolbar,body .console-layout .flight-actions,body .console-layout .flight-toolbar,body .console-layout .back-to-flight,body .console-layout .orbit-legend,body .console-layout .placement-hint,body .console-layout .view-tools,body .console-layout .scene-bottom,body .console-layout .flight-hud{position:static;inset:auto;transform:none;width:100%;max-width:none;margin:0;pointer-events:auto;flex-wrap:wrap}
+body .console-layout .scene-top{display:flex;padding:0;background:none;border:0;gap:8px}
+.console-layout .craft-title{min-width:0;flex:1}
+body .console-layout .craft-title input{width:100%;font-size:22px}
+.console-layout .craft-title .eyebrow{font-size:8px;letter-spacing:1px}
+.console-layout .scene-badge{display:none}
+body .console-layout .build-toolbar{display:flex;justify-content:flex-start;white-space:normal;padding:10px;gap:10px;font-size:11px}
+.console-layout .flight-actions{flex-direction:column;align-items:stretch}
+.console-layout .flight-menu>summary{width:100%;max-width:none}
+.console-layout #focus-name{flex:1;max-width:none}
+.console-layout .flight-menu-content{position:static;width:100%;max-width:none;padding:14px;margin-top:8px;box-shadow:none}
+.console-layout #vehicle-list{max-height:300px}
+.console-layout .flight-toolbar{justify-content:flex-start;gap:8px}
+.console-layout .time-scale-label{font-size:10px}
+.console-layout .orbit-legend{gap:10px}
+.console-layout .map-focus-label{flex-wrap:wrap;width:100%}
+.console-layout .map-focus-label select{max-width:100%;width:100%}
+body .console-layout .axis-widget{display:none}
+body .console-layout .view-tools{display:flex;flex-direction:row;gap:6px;align-items:flex-start}
+.console-layout .view-tools .preview-badge{position:static;flex-basis:100%}
+.console-layout .display-settings{display:block;flex-basis:100%;order:1}
+.console-layout .display-settings>summary{display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;text-align:left;padding:10px 12px;height:auto;font:12px var(--mono)}
+.console-layout .part-info-settings>summary::after{content:' パーツ情報の表示設定'}
+.console-layout .display-settings:not(.part-info-settings)>summary::after{content:' 描画設定'}
+.console-layout .display-settings-panel{position:static;width:100%;max-height:none;margin-top:6px;box-shadow:none}
+body .console-layout .scene-bottom{display:flex;flex-direction:column;gap:10px;align-items:flex-start;padding:10px;font-size:10px;line-height:1.7}
+body .console-layout .flight-hud{display:flex;justify-content:flex-start;padding:14px;background:#10212b;border:1px solid var(--line);text-shadow:none}
+.console-layout .flight-hud .hud-main strong{font-size:30px}
+.console-layout .sidebar-library{border-block:1px solid var(--line)}
+.console-layout .sidebar-library>summary{cursor:pointer;padding:16px 20px;font-size:13px;color:var(--cyan)}
+.console-layout .sidebar-library .panel-heading{display:none}
+.console-layout .parts-list{display:grid;grid-template-columns:1fr;max-height:350px;overflow:auto;padding:12px 16px;gap:8px}
+body .console-layout .part-card{min-height:76px;font-size:12px}
+body .console-layout .part-card strong{font-size:12px}
+body .console-layout .part-card .part-art{width:45px}
+.console-layout .library-foot{display:flex;padding:14px 18px}
+.console-layout .sidebar-part-info{padding:0 18px 18px;display:grid;gap:8px}
+.console-layout .part-callout{position:static;width:100%;height:auto;max-height:none;box-shadow:none}
+.console-layout .part-callout.selected{padding:12px}
+body .console-layout .statusbar{display:flex;flex-direction:column;align-items:flex-start;height:auto;gap:12px;padding:16px 18px;margin-top:20px;line-height:1.7}
+body .console-layout .statusbar>div{display:flex;flex-wrap:wrap;gap:8px}
+body .console-layout #toast{position:sticky;bottom:0;left:auto;transform:none;max-width:100%;margin:12px 16px 0;font-size:12px;z-index:20}
+body #app>dialog{position:fixed;inset:0 0 0 auto;margin:0;width:min(390px,100vw);height:100dvh;max-height:100dvh;max-width:100vw;border-radius:0;padding:24px;overflow:auto}
+body #app>dialog::backdrop{background:#0007}
+.craft-library .library-entry{flex-direction:column;align-items:stretch;gap:14px;padding:16px}
+.craft-library .library-entry>div:last-child{flex-direction:row;flex-wrap:wrap}
+.loading-screen{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:#000;color:#e8eeee;padding:24px}
+.loading-content{width:min(440px,100%)}
+.loading-content .eyebrow{color:#94aaa9;letter-spacing:3px;font-size:10px}
+.loading-content h1{font-size:22px;font-weight:500;margin:20px 0 16px;line-height:1.5}
+.loading-content p{font-size:12px;color:#a4b7b6;line-height:1.8;overflow-wrap:anywhere}
+.loading-content progress{display:block;appearance:none;width:100%;height:4px;border:0;background:#22302f;margin:26px 0 12px;accent-color:#87d9d1}
+.loading-content progress::-webkit-progress-bar{background:#22302f}
+.loading-content progress::-webkit-progress-value{background:#87d9d1}
+.loading-content progress::-moz-progress-bar{background:#87d9d1}
+.loading-meta{display:flex;justify-content:space-between;color:#8aa3a1;font:11px var(--mono)}
+.loading-meta strong{color:#d8efed;font-weight:400}
+.loading-content .primary-button{margin-top:20px}
+.loading-screen.failed p[role=alert]{color:#ffc1a1;margin-top:20px}
+@media(max-width:620px){body .workspace.console-layout{grid-template-columns:minmax(0,1fr) min(300px,62vw)}.console-layout .sidebar-controls{padding:12px;gap:12px}.console-layout .flight-toolbar .segmented button{padding:0 7px}.console-layout .craft-title input{font-size:18px}.console-layout .panel-heading{padding:16px 12px}.console-layout .parts-list{padding:10px}.console-layout .part-card{gap:6px}.console-layout .sidebar-part-info{padding:0 12px 12px}}

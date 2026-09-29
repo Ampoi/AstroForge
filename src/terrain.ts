@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {PLANET_RADIUS,TERRAIN_STEP,terrainDirection,terrainCoordinates,terrainVertexSample,terrainColor} from '../shared/terrain.ts';
 import {PLANET_MAP_WIDTH,PLANET_MAP_HEIGHT} from './terrain-map.ts';
 
-export function planetTexture(){
+export function planetTexture(onProgress:(progress:number)=>void=()=>{}){
   // WebGL storage is immutable after the first frame. Keep the placeholder at
   // the worker's final size so starting in flight can upload the finished map.
   const pixels=new Uint8Array(PLANET_MAP_WIDTH*PLANET_MAP_HEIGHT*4);
@@ -12,7 +12,7 @@ export function planetTexture(){
   let disposed=false,finish:()=>void=()=>{};
   const ready=new Promise<void>((resolve,reject)=>{
     finish=resolve;
-    worker.onmessage=({data})=>{if(disposed)return;map.image=data;map.needsUpdate=true;worker.terminate();resolve();};
+    worker.onmessage=({data})=>{if(disposed)return;if("progress" in data){onProgress(data.progress);return;}map.image=data;map.needsUpdate=true;worker.terminate();onProgress(1);resolve();};
     worker.onerror=(event)=>{worker.terminate();reject(new Error(event.message));};
   });
   map.colorSpace=THREE.SRGBColorSpace;map.wrapS=THREE.RepeatWrapping;

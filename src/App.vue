@@ -11,7 +11,7 @@ const development=import.meta.env.DEV;
 const renderModeLink=new URL(window.location.href);
 renderModeLink.searchParams.set('render',lightweightPreview?'full':'preview');
 const {
-  partInfoSettings, partProjection, copyPartId, sendPartCommand,
+  partInfoSettings, copyPartId, sendPartCommand,
   displayRate,
   renderFps,
   frameRates,
@@ -40,6 +40,8 @@ const {
   markers,
   placement,
   sceneError,
+  loading,
+  reload,
   flying,
   active,
   stats,
@@ -110,84 +112,32 @@ function closeOnBackdrop(event: MouseEvent) {
 }
 </script>
 <template>
-  <div class="universal-clock" aria-label="ゲーム内時刻（GMT）">
-    <span>GMT</span
-    ><time id="gmt-clock" :datetime="clock.toISOString()">{{
-      clock.toISOString().slice(11, 19)
-    }}</time>
+  <div v-if="loading.active" class="loading-screen" :class="{ failed: loading.error }">
+    <div class="loading-content">
+      <span class="eyebrow">ASTROFORGE / INITIALIZING</span>
+      <h1>{{ loading.error ? '読み込みを完了できませんでした' : '3D環境を準備しています' }}</h1>
+      <p role="status" aria-live="polite">{{ loading.label }}</p>
+      <progress :value="loading.progress" max="100" aria-label="3D環境の読み込み進捗" />
+      <div class="loading-meta"><span>準備工程の進捗</span><strong>{{ loading.progress }}%</strong></div>
+      <template v-if="loading.error"><p role="alert">{{ loading.error }}</p><button class="primary-button" @click="reload">再読み込み</button></template>
+    </div>
   </div>
-  <div class="workspace">
-    <aside id="parts-panel" class="left-panel" :hidden="flying">
-      <div class="panel-heading">
-        <div>
-          <span class="eyebrow">COMPONENT LIBRARY</span>
-          <h1>パーツライブラリ</h1>
-        </div>
-        <span class="count-badge">{{ Object.keys(PARTS).length }}</span>
-      </div>
-      <div class="category-tabs" aria-label="パーツ分類">
-        <button
-          v-for="[key, label] in categories"
-          :key="key"
-          :data-category="key"
-          :class="{ active: category === key }"
-          @click="category = key"
-        >
-          {{ label }}
-        </button>
-      </div>
-      <div id="parts-list" class="parts-list">
-        <button
-          v-for="[type, def] in palette"
-          :key="type"
-          class="part-card"
-          :data-part="type"
-          draggable="true"
-          :title="def.description"
-          @click="beginPart(type)"
-          @dragstart="dragPart($event, type)"
-          @dragend="cancelPlacement"
-        >
-          <span class="part-art"><PartIcon :type="type" /></span
-          ><span
-            ><strong>{{ def.name }}</strong
-            ><small>{{ def.label }}</small
-            ><span class="part-meta"
-              >{{ num(def.mass) }} kg{{
-                def.thrust
-                  ? ` · ${num(def.thrust / 1000, def.thrust < 1000 ? 2 : 0)} kN`
-                  : def.fuel
-                    ? ` · ${num(def.fuel)} kg fuel`
-                    : def.power
-                      ? ` · ${def.power} Wh`
-                      : def.watts
-                        ? ` · ${def.watts} W`
-                        : ""
-              }}</span
-            ></span
-          ><span class="part-add">+</span>
-        </button>
-      </div>
-      <div class="library-foot">
-        <span class="diameter-symbol">⌀</span>
-        <div>
-          <strong :style="{color:FACE_COLORS.standard}">標準径 ⌀1.25 m</strong>
-          <strong :style="{color:FACE_COLORS.slim}">細径 ⌀{{ SLIM_DIAMETER.toFixed(2) }} m</strong>
-          <p><span :style="{color:FACE_COLORS.custom}">橙：矩形・その他</span> · 異なる規格も接続可</p>
-          <p>断面を近づけて重ねると中心へスナップ</p>
-        </div>
-      </div>
-    </aside>
+  <div class="workspace console-layout" :inert="loading.active" :aria-busy="loading.active">
     <main id="viewport" class="viewport">
       <div id="scene" ref="sceneElement" aria-label="機体の3D表示">
         <p v-if="sceneError" class="px-8 pt-56 text-orange-200">
           3D表示にはWebGLが必要です。ブラウザのハードウェアアクセラレーションを有効にして再読み込みしてください。
         </p>
       </div>
-      <PartOverlay :parts="flying ? focused?.craft.parts ?? [] : craft.parts" :flight="flying ? focused : null"
-        :projection="partProjection" :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
-        :udp="focused?.udp" :unavailable="!focused || focused.passive || ['landed','crashed','destroyed'].includes(focused.status)" :send-command="sendPartCommand"
-        @enable="focused && toggleUdp(focused.id)" @select="selectPart" @copy="copyPartId" />
+    </main>
+    <aside class="right-panel" aria-label="操作サイドバー">
+  <div class="universal-clock" aria-label="ゲーム内時刻（GMT）">
+    <span>GMT</span
+    ><time id="gmt-clock" :datetime="clock.toISOString()">{{
+      clock.toISOString().slice(11, 19)
+    }}</time>
+  </div>
+      <div class="sidebar-controls">
       <div class="scene-top">
         <div class="craft-title">
           <span id="scene-eyebrow" class="eyebrow">{{
@@ -430,11 +380,11 @@ function closeOnBackdrop(event: MouseEvent) {
           <summary class="icon-button" :class="{active:partInfoSettings.enabled}" aria-label="パーツ情報の表示設定" title="パーツ情報の表示設定">ID</summary>
           <div class="display-settings-panel">
             <strong>パーツ情報</strong>
-            <label><input v-model="partInfoSettings.enabled" type="checkbox" /> 全パーツのオーバーレイ</label>
+            <label><input v-model="partInfoSettings.enabled" type="checkbox" /> 全パーツの情報一覧</label>
             <fieldset><legend>表示項目</legend>
               <label v-for="field in partInfoFields" :key="field.key"><input v-model="partInfoSettings[field.key]" type="checkbox" /> {{ field.label }}</label>
             </fieldset>
-            <p>パーツを選択すると引き出し線付きでIDとAPI資料を表示します。地球表示では非表示です。</p>
+            <p>選択したパーツのID・操作・API資料をサイドバーに表示します。</p>
           </div>
         </details>
         <details class="display-settings">
@@ -552,8 +502,74 @@ function closeOnBackdrop(event: MouseEvent) {
           >
         </div>
       </div>
-    </main>
-    <aside class="right-panel">
+      </div>
+      <PartOverlay :parts="flying ? focused?.craft.parts ?? [] : craft.parts" :flight="flying ? focused : null"
+        :settings="partInfoSettings" :selected="selected" :flying="flying" :connected="connected"
+        :udp="focused?.udp" :unavailable="!focused || focused.passive || ['landed','crashed','destroyed'].includes(focused.status)" :send-command="sendPartCommand"
+        @enable="focused && toggleUdp(focused.id)" @select="selectPart" @copy="copyPartId" />
+    <details id="parts-panel" class="sidebar-library" :hidden="flying" open>
+      <summary>パーツライブラリ</summary>
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">COMPONENT LIBRARY</span>
+          <h1>パーツライブラリ</h1>
+        </div>
+        <span class="count-badge">{{ Object.keys(PARTS).length }}</span>
+      </div>
+      <div class="category-tabs" aria-label="パーツ分類">
+        <button
+          v-for="[key, label] in categories"
+          :key="key"
+          :data-category="key"
+          :class="{ active: category === key }"
+          @click="category = key"
+        >
+          {{ label }}
+        </button>
+      </div>
+      <div id="parts-list" class="parts-list">
+        <button
+          v-for="[type, def] in palette"
+          :key="type"
+          class="part-card"
+          :data-part="type"
+          draggable="true"
+          :title="def.description"
+          @click="beginPart(type)"
+          @dragstart="dragPart($event, type)"
+          @dragend="cancelPlacement"
+        >
+          <span class="part-art"><PartIcon :type="type" /></span
+          ><span
+            ><strong>{{ def.name }}</strong
+            ><small>{{ def.label }}</small
+            ><span class="part-meta"
+              >{{ num(def.mass) }} kg{{
+                def.thrust
+                  ? ` · ${num(def.thrust / 1000, def.thrust < 1000 ? 2 : 0)} kN`
+                  : def.fuel
+                    ? ` · ${num(def.fuel)} kg fuel`
+                    : def.power
+                      ? ` · ${def.power} Wh`
+                      : def.watts
+                        ? ` · ${def.watts} W`
+                        : ""
+              }}</span
+            ></span
+          ><span class="part-add">+</span>
+        </button>
+      </div>
+      <div class="library-foot">
+        <span class="diameter-symbol">⌀</span>
+        <div>
+          <strong :style="{color:FACE_COLORS.standard}">標準径 ⌀1.25 m</strong>
+          <strong :style="{color:FACE_COLORS.slim}">細径 ⌀{{ SLIM_DIAMETER.toFixed(2) }} m</strong>
+          <p><span :style="{color:FACE_COLORS.custom}">橙：矩形・その他</span> · 異なる規格も接続可</p>
+          <p>断面を近づけて重ねると中心へスナップ</p>
+        </div>
+      </div>
+    </details>
+
       <section id="editor-inspector" :hidden="flying">
         <div class="panel-heading">
           <div>
@@ -793,8 +809,6 @@ function closeOnBackdrop(event: MouseEvent) {
           </button>
         </div>
       </div>
-    </aside>
-  </div>
   <footer class="statusbar">
     <div>
       <span class="status-dot" /><span>LOCAL SIMULATION</span><b>/</b
@@ -816,6 +830,8 @@ function closeOnBackdrop(event: MouseEvent) {
   </footer>
   <div id="toast" role="status" aria-live="polite" :hidden="!toastText">
     {{ toastText }}
+  </div>
+    </aside>
   </div>
   <dialog id="help-dialog" ref="helpDialog" @click="closeOnBackdrop">
     <div class="dialog-heading">

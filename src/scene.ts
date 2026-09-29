@@ -1,3 +1,5 @@
+import {loadExhaustKernel} from './exhaust-kernel.ts';
+import {afterPaint,type LoadingReporter} from './loading.ts';
 import {SolarMap,type MapFocus} from './solar-map.ts';
 function isStandardMesh(o: THREE.Object3D): o is THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial>{return o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial;}
 import type {Design, Assembly, LayoutPart, PartType, Mode, SurfaceHit, AssemblyPlacement, PlacementOptions} from '../shared/types.ts';
@@ -56,6 +58,7 @@ export function disposeGroup(g: THREE.Object3D){g.traverse(o=>{if(!(o instanceof
 
 export class RocketScene{
   readonly terrain=new LocalTerrain();
+  readonly ready:Promise<void>;
   element: HTMLElement; onSelect: (id:string | null)=>void;
   onPlace: (type:PartType, placement:AssemblyPlacement | null, movingId?:string)=>void;
   onPlacement: (placement:AssemblyPlacement | null | false | undefined, draft?:Assembly)=>void;
@@ -77,13 +80,13 @@ export class RocketScene{
   frameClock=new FrameClock(); flightMotion=new FlightMotion();
   showPartInfo=false; onPartProjection?: (projection: PartProjection)=>void;
 
-  constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{}){
+  constructor(element: HTMLElement,onSelect: RocketScene['onSelect'],onPlace: RocketScene['onPlace'],onPlacement: RocketScene['onPlacement']=()=>{},report:LoadingReporter=()=>{},deferStart=false){
     this.element=element;this.onSelect=onSelect;this.onPlace=onPlace;this.mode='editor';this.selected=null;this.placing=null;this.groups=new Map();this.showMarkers=false;
     this.scene=new THREE.Scene();this.scene.fog=new THREE.FogExp2('#172a35',.013);
     this.camera=new THREE.PerspectiveCamera(34,1,.05,1000000);this.camera.position.set(12,8,15);
     this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFSoftShadowMap;this.renderer.setClearColor(0,0);
     this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.3;element.appendChild(this.renderer.domElement);
-    this.renderer.autoClear=false;this.environment=new EarthEnvironment();this.solarMap=new SolarMap(this.environment.uniforms.earthMap.value);this.globe=false;
+    this.renderer.autoClear=false;this.environment=new EarthEnvironment(undefined,report);this.solarMap=new SolarMap(this.environment.uniforms.earthMap.value);this.globe=false;
     this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=true;this.controls.dampingFactor=.08;this.controls.minDistance=3;this.controls.maxDistance=25000;this.controls.maxPolarAngle=Math.PI*.91;this.controls.target.set(0,4,0);
     this.followCamera=this.camera;this.followControls=this.controls;
     this.globeCamera=new THREE.PerspectiveCamera(34,1,.05,3000000);this.globeCamera.up.set(0,0,-1);
@@ -94,6 +97,11 @@ export class RocketScene{
     this.grid=new THREE.GridHelper(44,44,'#78908f','#52666b');this.grid.position.y=.02;this.grid.material.transparent=true;this.grid.material.opacity=.15;this.ground.add(this.grid);
     setVabLighting(this.scene,true);
     this.editorGround=this.ground;this.launchSite=makeLaunchSite();this.launchSite.visible=false;this.scene.add(this.launchSite);
+    report('launch',0);report('effects',0);
+    this.ready=Promise.all([this.environment.ready,loadExhaustKernel().then(()=>report("effects",1)),this.launchSite.ready.then(()=>{
+      if(this.launchSite.loadError)throw this.launchSite.loadError;
+      report('launch',1);
+    })]).then(()=>{});
     this.scene.add(this.terrain);this.rocket=new THREE.Group();this.scene.add(this.rocket);this.scene.add(this.exhaust.mesh);
     this.markers=new THREE.Group();this.scene.add(this.markers);
     this.snapGroup=new THREE.Group();this.scene.add(this.snapGroup);
@@ -141,7 +149,33 @@ export class RocketScene{
     },{signal:this.listeners.signal});
     document.addEventListener('keydown',e=>{if(e.key==='Escape')this.cancelPlacement();},{signal:this.listeners.signal});
     this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(element);this.resize();
-    this.running=true;this.animate();
+    if(!deferStart){this.running=true;this.animate();}
+
+  }
+  async prepare(report:LoadingReporter=()=>{}){
+    await this.ready;
+    if(this.listeners.signal.aborted)return;
+    report('gpu',0);
+    await afterPaint();
+    if(this.listeners.signal.aborted)return;
+    await this.environment.prepare(this.renderer);
+    if(this.listeners.signal.aborted)return;
+    report('gpu',.35);
+    // Include the hidden workshop and launch-site materials in shader preparation.
+    const visibility=new Map<THREE.Object3D,boolean>();
+    this.scene.traverse(object=>{visibility.set(object,object.visible);object.visible=true;});
+    try{await this.renderer.compileAsync(this.scene,this.camera);}
+    finally{for(const [object,visible] of visibility)object.visible=visible;}
+    if(this.listeners.signal.aborted)return;
+    report('gpu',.7);
+    await this.renderer.compileAsync(this.solarMap.scene,this.globeCamera);
+    await afterPaint();
+    if(this.listeners.signal.aborted)return;
+    if(this.renderer.getContext().isContextLost())throw new Error("WebGLの接続が失われました。再読み込みしてください。");
+    if(!this.running){this.running=true;this.animate();}
+    // A completed render submits geometry and textures before revealing the canvas.
+    await afterPaint();
+    report('gpu',1);
   }
   resize(){const {width,height}=this.element.getBoundingClientRect();if(!width||!height)return;for(const camera of [this.followCamera,this.globeCamera]){camera.aspect=width/height;camera.updateProjectionMatrix();}this.renderer.setSize(width,height);}
   hit(e: MouseEvent | DragEvent, surface: true): SurfaceHit | null;
@@ -319,10 +353,10 @@ export class RocketScene{
   fitSite(){
     if(this.globe)return this.fit();
     if(this.mode==='flight'){
-      // Look along the transport causeway: pad in front, connected VAB behind.
-      this.controls.target.set(-15,20,85);
+      // Facility coordinates follow the floating origin of the focused vehicle.
+      this.controls.target.copy(this.launchSite.position).add(new THREE.Vector3(600,20,220));
       const aspectScale=Math.max(1,1/this.camera.aspect);
-      this.camera.position.copy(this.controls.target).add(new THREE.Vector3(430,330,-650).multiplyScalar(aspectScale));
+      this.camera.position.copy(this.controls.target).add(new THREE.Vector3(1600,1400,-2000).multiplyScalar(aspectScale));
     }else{
       this.controls.target.set(0,(this.stats?.height||7)/2,0);
       this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));

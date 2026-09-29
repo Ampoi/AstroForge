@@ -1,3 +1,4 @@
+import type {LoadingReporter} from './loading.ts';
 import type {FlightSnapshot} from '../server/types.ts';
 import * as THREE from 'three';
 import {Line2} from 'three/addons/lines/Line2.js';
@@ -129,7 +130,7 @@ function makeUniforms(map: THREE.Texture,weather: THREE.Texture|null){return {cl
 export class EarthEnvironment{
   readonly sun=new SunBody();
   private readonly weather:ReturnType<typeof weatherTexture>|null;
-  private readonly planet=planetTexture();
+  private readonly planet:ReturnType<typeof planetTexture>;
   private readonly background=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthTexture:new THREE.DepthTexture(1,1)});
   private readonly flightCameraPosition={value:new THREE.Vector3()};
   private readonly composite=new THREE.Scene();
@@ -142,9 +143,12 @@ export class EarthEnvironment{
   trail: THREE.Line<THREE.BufferGeometry,THREE.LineBasicMaterial>; prediction: Line2;
   marker: THREE.Sprite; position: THREE.Vector3; time=0; destroyed=false;
 
-  constructor(lightweight=lightweightPreview){
+  constructor(lightweight=lightweightPreview,report:LoadingReporter=()=>{}){
+    report("planet",0);report("weather",0);
+    this.planet=planetTexture(progress=>report("planet",progress));
     this.scene=new THREE.Scene();this.camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
-    this.weather=lightweight?null:weatherTexture();
+    this.weather=lightweight?null:weatherTexture(progress=>report("weather",progress));
+    if(lightweight)report("weather",1);
     const {map,ready}=this.planet;this.ready=Promise.all([ready,this.weather?.ready]).then(()=>{});
     this.uniforms=makeUniforms(map,this.weather?.map??null);
     this.stars=lightweight?null:makeStarField(this.background.texture,this.uniforms.cameraRotation,this.uniforms.aspect,this.uniforms.tanFov);
@@ -220,6 +224,13 @@ export class EarthEnvironment{
     const predicted=orbit.map(p=>earthFixed(p,f.time).multiplyScalar(10.002/EARTH_RADIUS));
     if(predicted.length>1){const old=this.prediction.geometry;this.prediction.geometry=new LineGeometry().setFromPoints(predicted);old.dispose();this.prediction.computeLineDistances();}
     this.prediction.visible=predicted.length>1;
+  }
+  async prepare(renderer:THREE.WebGLRenderer){
+    await this.ready;
+    renderer.initTexture(this.uniforms.earthMap.value);
+    if(this.weather)renderer.initTexture(this.weather.map);
+    if(this.uniforms.cloudNoise.value)renderer.initTexture(this.uniforms.cloudNoise.value);
+    for(const scene of [this.scene,this.composite,this.starScene,this.overlay])await renderer.compileAsync(scene,this.camera);
   }
   dispose(){
     for(const scene of [this.scene,this.overlay,this.composite,this.starScene])scene.traverse(o=>{
