@@ -34,10 +34,10 @@ test('symmetry keeps the center of mass on-axis and off-axis additions change in
   const asymmetric=massProperties(craft);assert.ok(asymmetric.com[1]>0);assert.ok(asymmetric.inertia[0]>p.inertia[0]);
   assert.ok(massProperties(craft,0).mass<asymmetric.mass);
 });
-test('craft rejects duplicate IDs, disconnected radial parts, and engine in the middle',()=>{
+test('craft rejects duplicate IDs and disconnected radial parts but accepts an engine in the middle',()=>{
   const a=starterCraft();a.parts.push({...a.parts[0]});assert.throws(()=>validateCraft(a));
   const b=starterCraft();b.parts.at(-1).parent='missing';assert.throws(()=>validateCraft(b));
-  const c=starterCraft();c.parts.push({id:'extra',type:'tank'});assert.throws(()=>validateCraft(c));
+  const c=starterCraft();c.parts.push({id:'extra',type:'tank'});assert.doesNotThrow(()=>validateCraft(c));
 });
 test('real-time sized steps launch the rocket and conserve propellant mass flow',()=>{
   const sim=new Simulation(starterCraft());sim.engines.engine_1={enabled:true,targetThrust:60000,expires:100,gimbalPitch:0,gimbalYaw:0};

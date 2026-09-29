@@ -37,8 +37,8 @@ test('axial drops use the closest mating face and preview the resulting stack ga
   const ghost=layout.find(p=>p.id==='preview_0'),parent=layout.find(p=>p.id===tank.id);
   assert.ok(Math.abs(parent.position[0]-parent.def.height/2-ghost.position[0]-ghost.def.height/2)<1e-12);
 });
-test('multiple engines require a separating ring and launch thrust counts only the lowest stage',()=>{
+test('multiple engines can share a stage and separating rings define stage boundaries',()=>{
   const staged=starterCraft();staged.parts.splice(3,0,{id:'upper',type:'engine'},{id:'separator',type:'decoupler'});
   assert.doesNotThrow(()=>validateCraft(staged));assert.equal(craftStats(staged).thrust,60000);assert.equal(craftStats(staged).stageCount,2);
-  staged.parts=staged.parts.filter(p=>p.id!=='separator');assert.throws(()=>validateCraft(staged));
+  staged.parts=staged.parts.filter(p=>p.id!=='separator');assert.doesNotThrow(()=>validateCraft(staged));assert.equal(craftStats(staged).stageCount,1);
 });

@@ -147,4 +147,17 @@ test('HTTP lifecycle, library persistence, independent UDP toggles, SSE, and tim
   await post('time-scale',{scale:7201},400);
   s=await post('revert',{});assert.equal(s.vehicles.length,1);assert.equal(s.connection.enabled,false);
   await stop();await start();s=await get();assert.equal(s.library.find(e=>e.id===saved1.libraryId).craft.name,'Updated one');assert.equal(s.library.find(e=>e.id===saved2.libraryId).craft.name,'Saved two');assert.equal(s.craft.name,'Updated one');
+  // Saving, previewing, and entering flight require a pod, not a launch-capable design.
+  for(const types of [['pod'],['engine','pod','tank'],['pod','engine'],['pod',...Array(8).fill('tank'),'engine'],['pod','decoupler']]){
+    const design={name:'Launch experiment',parts:types.map((type,i)=>({id:`part_${i}`,type}))};
+    await post('craft',design);
+    const preview=await post('launch-preview',design);
+    s=await post('launch',{...design,recoverVehicleIds:preview.occupants.map(v=>v.id)});
+    assert.equal(s.mode,'flight');assert.deepEqual(s.flight.craft,design);
+    assert.equal(s.vehicles.find(v=>v.id===s.activeVehicleId).udp.enabled,false);
+  }
+  await post('launch-preview',{name:'No pod',parts:[{id:'tank',type:'tank'}]},400);
+  await post('launch',{name:'No pod',parts:[{id:'tank',type:'tank'}]},400);
+  await stop();await start();s=await get();
+  assert.deepEqual(s.craft.parts.map(p=>p.type),['pod','decoupler'],'restart preserves designs that cannot lift off');
 });

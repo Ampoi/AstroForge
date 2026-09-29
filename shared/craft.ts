@@ -91,7 +91,6 @@ export function validateCraft(value: unknown): Craft{
   if(new Set(sensorNames).size!==sensorNames.length)throw Error('センサーIDは大文字・小文字を区別せず一意にしてください');
   const core=parts.filter(p=>!PARTS[p.type].radial);
   if(parts.filter(p=>p.type==='pod').length!==1)throw Error('コマンドポッドを1個配置してください');
-  if(core.some((p,i)=>isEngine(p.type)&&i!==core.length-1&&core[i+1].type!=='decoupler'))throw Error('エンジンの下には分離リングを配置してください');
   for(const p of parts.filter(p=>PARTS[p.type].radial))if(!core.some(c=>c.id===p.parent&&!isEngine(c.type)))throw Error('側面パーツの取り付け先がありません');
   if(input.rootId!==undefined&&!core.some(p=>p.id===input.rootId))throw Error('ルートパーツがありません');
   return {name:input.name.trim(),...(input.rootId!==undefined?{rootId:input.rootId as string}:{}),parts};
@@ -176,16 +175,6 @@ export function craftStats(craft: Craft){
     power:craft.parts.reduce((s,p)=>s+(PARTS[p.type].power||0),0)};
 }
 export function launchIssues(craft: Craft){
-  const s=craftStats(craft),issues=[];
-  try{validateCraft(craft);}catch(e){issues.push(errorMessage(e));}
-  const active=stages(craft).at(-1)!;
-  if(isRover(craft)){
-    if(craft.parts.filter(p=>p.type==='wheel').length<3)issues.push('ローバーには3輪以上のタイヤを取り付けてください');
-    return issues;
-  }
-  if(!active.some(p=>isEngine(p.type)))issues.push('最下段にエンジンを取り付けてください');
-  if(!active.some(p=>p.type==='tank'))issues.push('最下段に燃料タンクを取り付けてください');
-  for(const p of craft.parts.filter(p=>p.type==='decoupler'))try{splitCraft(craft,p.id);}catch(e){issues.push(errorMessage(e));}
-  if(s.thrust&&s.twr<=1)issues.push('推力重量比が1以下です。燃料タンクを減らしてください');
-  return issues;
+  // Flight entry validates craft data, not whether the design can lift off.
+  try{validateCraft(craft);return [];}catch(e){return [errorMessage(e)];}
 }
