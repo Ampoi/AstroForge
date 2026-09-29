@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><title>AstroForge · Launch Complex 01</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101e27;color:#dce5e3;font:13px system-ui}
+#scene{position:absolute;inset:0}header{position:absolute;top:24px;left:28px;pointer-events:none}
+small{font-size:10px;letter-spacing:.22em;color:#8bc3bd}h1{font-size:24px;font-weight:500;margin:7px 0}
+nav{position:absolute;bottom:24px;left:28px;right:20px;display:flex;gap:6px;flex-wrap:wrap}
+button{border:1px solid #6f878766;border-radius:4px;background:#15272de8;color:#dce5e3;padding:10px 15px;cursor:pointer}
+button:hover{background:#345453}#status{position:absolute;right:24px;bottom:84px;font-size:11px;white-space:pre;text-align:right;pointer-events:none}
+</style>
+<div id="scene"></div>
+<header><small>ASTROFORGE / GROUND SYSTEMS</small><h1>Launch Complex 01</h1><span>VAB → 搬送路 → 発射台</span></header>
+<nav><button id="overview">施設全体</button><button id="pad">発射台</button><button id="corridor">搬送路とVAB</button><button id="flight">通常の飛行画面</button></nav>
+<div id="status">Loading Blender model…</div>
+<script type="module">
+import * as THREE from 'three';
+import {RocketScene} from '../src/scene.ts';
+import {starterCraft,massProperties,craftStats} from '../shared/craft.ts';
+import {EARTH_RADIUS} from '../src/celestial.ts';
+const view=new RocketScene(document.querySelector('#scene'),()=>{},()=>{});
+const craft=starterCraft(),props=massProperties(craft),stats=craftStats(craft);
+view.setCraft(craft);view.setMode('flight');
+const flight={id:'launch-complex-preview',craft,time:0,status:'pad',position:[EARTH_RADIUS+props.com[0],0,0],
+  velocity:[0,0,0],quaternion:[0,0,0,1],omega:[0,0,0],com:props.com,stats,altitude:0,altitudeAsl:props.com[0],
+  engines:[],debris:[],joints:[],wheels:[],partPoses:[]};
+view.updateFlight(flight,[]);
+view.renderFlight(flight,performance.now());
+view.fitSite();
+function pose(position,target){view.controls.target.set(...target);view.camera.position.set(...position);view.controls.update();}
+document.querySelector('#overview').onclick=()=>view.fitSite();
+document.querySelector('#pad').onclick=()=>pose([130,68,-58],[-16,35,-4]);
+document.querySelector('#corridor').onclick=()=>pose([89,69,-64],[0,14,161]);
+document.querySelector('#flight').onclick=()=>view.fit();
+await Promise.all([view.launchSite.ready,view.environment.ready]);
+view.fitSite();
+let meshes=0,triangles=0;
+view.launchSite.traverse(o=>{if(o instanceof THREE.Mesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;}});
+const status=view.launchSite.loadError?'FAIL: '+String(view.launchSite.loadError):
+  'GLB loaded · '+meshes+' meshes · '+triangles.toLocaleString()+' triangles\nBlender 5.2 · 1 unit = 1 metre · Pad Y = 0';
+const metrics=setInterval(()=>{
+  document.querySelector('#status').textContent=status+'\nCamera range '+view.camera.position.distanceTo(view.controls.target).toFixed(0)+' m · '+view.fps.toFixed(0)+' fps';
+},500);
+window.addEventListener('pagehide',()=>{clearInterval(metrics);view.dispose();});
+</script></html>

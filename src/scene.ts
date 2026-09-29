@@ -65,7 +65,7 @@ export class RocketScene{
   solarMap: SolarMap;
   lighting: SceneLighting; renderer: THREE.WebGLRenderer; environment: EarthEnvironment; globe=false;
   controls: OrbitControls; followControls: OrbitControls; globeControls: OrbitControls;
-  ground: THREE.Group; editorGround: THREE.Group; launchSite: THREE.Group; grid: THREE.GridHelper;
+  ground: THREE.Group; editorGround: THREE.Group; launchSite: ReturnType<typeof makeLaunchSite>; grid: THREE.GridHelper;
   hangar: VabEnvironment; rocket: THREE.Group; markers: THREE.Group; snapGroup: THREE.Group; preview: THREE.Group;
   placementOptions={count:4,mirror:false,snap:true}; debrisGroups=new Map<string,THREE.Group>();
   raycaster: THREE.Raycaster; pointer: THREE.Vector2; down: {x:number;y:number} | null=null;
@@ -318,8 +318,16 @@ export class RocketScene{
   }
   fitSite(){
     if(this.globe)return this.fit();
-    this.controls.target.set(0,this.mode==='flight'?5:(this.stats?.height||7)/2,0);
-    this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));this.controls.update();
+    if(this.mode==='flight'){
+      // Look along the transport causeway: pad in front, connected VAB behind.
+      this.controls.target.set(-15,20,85);
+      const aspectScale=Math.max(1,1/this.camera.aspect);
+      this.camera.position.copy(this.controls.target).add(new THREE.Vector3(430,330,-650).multiplyScalar(aspectScale));
+    }else{
+      this.controls.target.set(0,(this.stats?.height||7)/2,0);
+      this.camera.position.copy(this.controls.target).add(new THREE.Vector3(340,300,450));
+    }
+    this.controls.update();
   }
   zoom(factor: number){this.camera.position.sub(this.controls.target).multiplyScalar(factor).add(this.controls.target);this.controls.update();}
   setMapFocus(focus:MapFocus){this.solarMap.setFocus(focus);if(this.globe)this.fit();}
@@ -426,7 +434,7 @@ export class RocketScene{
       up,groundHeight:surfaceClearance(f.position,f.time),density:Math.exp(-Math.max(0,f.altitudeAsl)/8500),emitters,obstacles},this.camera);
   }
   dispose(){
-    this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();
+    this.running=false;cancelAnimationFrame(this.frame);this.listeners.abort();this.observer.disconnect();this.hangar.dispose();this.launchSite.dispose();
     this.followControls.dispose();this.globeControls.dispose();this.scene.remove(this.exhaust.mesh);this.exhaust.dispose();disposeGroup(this.scene);this.environment.dispose();this.solarMap.dispose();
     this.terrain.material.map?.dispose();this.lighting.dispose();this.renderer.dispose();this.renderer.domElement.remove();
   }
@@ -440,7 +448,9 @@ export class RocketScene{
     if(this.mode==='flight'){const flight=this.flightMotion.sample(now);if(flight)this.renderFlight(flight,now);}
     this.updateMapTarget();
     this.controls.update();this.selectionBox?.update();this.projectParts();this.renderer.clear();
-    const near=this.globe ? Math.max(.005,this.camera.position.length()/100000) : Math.max(.05,this.camera.position.distanceTo(this.controls.target)/10000);
+    // Keep depth precision on the centimetre-scale surface details when viewing
+    // the whole complex. A 5 cm near plane at kilometre range makes them flicker.
+    const near=this.globe ? Math.max(.005,this.camera.position.length()/100000) : Math.max(.05,Math.min(5,this.camera.position.distanceTo(this.controls.target)/100));
     if(this.camera.near!==near){this.camera.near=near;this.camera.updateProjectionMatrix();}
     if(this.mode==='flight'){
       if(this.globe){this.solarMap.render(this.renderer,this.camera);return;}

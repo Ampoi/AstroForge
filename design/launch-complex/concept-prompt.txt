@@ -1,0 +1,10 @@
+Use case: photorealistic-natural
+Asset type: architectural visual reference for a Blender model of AstroForge Launch Complex.
+Primary request: a convincing aerial architectural photograph of a vast modern heavy-lift orbital launch complex, with no rocket present so the launch infrastructure is clearly visible.
+Scene/backdrop: a flat remote coastal grassland with distant ocean and a broad horizon.
+Subject: a monumental steel launch service tower about 100 metres tall with exposed truss bracing, service decks, external stairs, retractable umbilical arms, a red crane on top; a large elevated concrete launch pedestal with an open central exhaust opening and a deep flame trench extending away; a raised access ramp; lightning protection towers; pipe racks to a separate cryogenic tank farm of white insulated vertical tanks and spherical tanks with containment walls; a distant wide assembly hangar, utility buildings, service roads, perimeter fences, and deluge water tower.
+Style/medium: realistic drone photography, physically plausible industrial civil engineering, fine visible structural detail and material variation, no science-fiction.
+Composition/framing: landscape 16:9, elevated oblique three-quarter view showing the complete facility and a clear readable layout, launch tower and flame trench prominent in foreground, secondary infrastructure spaced out behind.
+Lighting/mood: clear warm late-afternoon daylight with soft atmospheric perspective, long readable shadows.
+Materials/textures: weathered pale concrete with expansion joints, charcoal steel, muted galvanized metal, white tank cladding, safety yellow handrails, restrained oxidized red accents, asphalt roads and patchy natural grass.
+Constraints: empty launch pad with an unobstructed launch axis; no logos, no words, no watermark; suitable to model as a detailed real-time 3D environment.

@@ -1,0 +1,25 @@
+{
+  "blender": "5.2.2 LTS",
+  "meshes": 75,
+  "triangles": 126594,
+  "materials": 16,
+  "padContactY": 0,
+  "apronSurfaceY": -0.845,
+  "vabDoorZ": 185,
+  "transportCorridor": {
+    "minZ": 6,
+    "maxZ": 226,
+    "width": 28
+  },
+  "boundsMetres": {
+    "x": [
+      -215,
+      185
+    ],
+    "z": [
+      -151,
+      319
+    ]
+  },
+  "towerHeightMetres": 84
+}
